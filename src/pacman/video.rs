@@ -185,8 +185,8 @@ impl Video {
     }
 
     pub fn render_frame(&mut self, rom: &BaseRom, mem: &Memory) {
-        for tile_x in 2..34 {
-            for tile_y in 0..32 {
+        for tile_x in 0..36 {
+            for tile_y in 2..30 {
                 let tile = (tile_y * 36 + tile_x) as u16;
                 let idx = self.tile_map[tile as usize];
                 if idx == 0x400 {
