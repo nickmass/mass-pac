@@ -1,15 +1,21 @@
 use std::ops::{Deref, DerefMut};
 
 macro_rules! define_flag {
-    ($name:ident, $name_mut:ident, $bit:literal) => {
+    ($name:ident, $name_mut:ident, $bit:literal$( , self.$reg:ident)?) => {
         #[inline(always)]
         pub fn $name_mut(&mut self) -> Flag<$bit, &mut u8> {
-            Flag(&mut self.regs[Reg8::F as usize])
+            #[allow(unused)]
+            let reg = &mut self.regs[Reg8::F as usize];
+            $(let reg = &mut self.$reg;)?
+            Flag(reg)
         }
 
         #[inline(always)]
         pub fn $name(&self) -> bool {
-            Flag::<$bit, _>(&self.regs[Reg8::F as usize]).get()
+            #[allow(unused)]
+            let reg = &self.regs[Reg8:: F as usize];
+            $(let reg = &self.$reg;)?
+            Flag::<$bit, _>(reg).get()
         }
     };
 }
@@ -87,22 +93,8 @@ impl Registers {
     define_flag!(flag_h, flag_h_mut, 4);
     define_flag!(flag_z, flag_z_mut, 6);
     define_flag!(flag_s, flag_s_mut, 7);
-
-    pub fn flag_iff1(&self) -> bool {
-        Flag::<0, _>(&self.iff).get()
-    }
-
-    pub fn flag_iff1_mut(&mut self) -> Flag<0, &mut u8> {
-        Flag::<0, _>(&mut self.iff)
-    }
-
-    pub fn flag_iff2(&self) -> bool {
-        Flag::<1, _>(&self.iff).get()
-    }
-
-    pub fn flag_iff2_mut(&mut self) -> Flag<1, &mut u8> {
-        Flag::<1, _>(&mut self.iff)
-    }
+    define_flag!(flag_iff1, flag_iff1_mut, 0, self.iff);
+    define_flag!(flag_iff2, flag_iff2_mut, 1, self.iff);
 
     pub fn set_flags_szv(&mut self, value: u8) {
         self.flag_s_mut().value(value & 0x80 != 0);
