@@ -47,7 +47,7 @@ fn main() {
 
     let (audio, samples_tx) = init_audio();
     let sample_rate = audio.sample_rate();
-    let mut app = App::<true, _, _>::new(filter, audio);
+    let mut app = App::new(filter, audio);
     let input = app.system_io();
     let back_buffer = app.back_buffer();
 

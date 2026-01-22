@@ -24,9 +24,9 @@ impl From<UserInput> for EmulatorInput {
     }
 }
 
-pub struct App<const ROT_90: bool, F, A> {
+pub struct App<F, A> {
     audio: A,
-    gfx: Gfx<ROT_90, F>,
+    gfx: Gfx<F>,
     window: winit::window::Window,
     event_loop: Option<winit::event_loop::EventLoop<UserEvent>>,
     input: InputMap,
@@ -35,17 +35,16 @@ pub struct App<const ROT_90: bool, F, A> {
     pause: bool,
 }
 
-impl<const ROT_90: bool, F: Filter<GliumContext>, A: Audio> App<ROT_90, F, A> {
+impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
     pub fn new(filter: F, audio: A) -> Self {
         let event_loop = winit::event_loop::EventLoop::with_user_event()
             .build()
             .unwrap();
 
-        let dims = if ROT_90 {
+        // rotate dimensions to adjust for game rendering at 90 degrees
+        let (width, height) = {
             let (height, width) = filter.dimensions();
             (width, height)
-        } else {
-            filter.dimensions()
         };
 
         let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
@@ -53,7 +52,7 @@ impl<const ROT_90: bool, F: Filter<GliumContext>, A: Audio> App<ROT_90, F, A> {
                 ConfigTemplateBuilder::new().with_swap_interval(None, None),
             )
             .with_vsync(false)
-            .with_inner_size(dims.0 * 2, dims.1 * 2)
+            .with_inner_size(width * 2, height * 2)
             .with_title("Mass Pac")
             .build(&event_loop);
 
@@ -114,8 +113,8 @@ impl<const ROT_90: bool, F: Filter<GliumContext>, A: Audio> App<ROT_90, F, A> {
     }
 }
 
-impl<const ROT_90: bool, F: Filter<GliumContext>, A: Audio>
-    winit::application::ApplicationHandler<UserEvent> for App<ROT_90, F, A>
+impl<F: Filter<GliumContext>, A: Audio> winit::application::ApplicationHandler<UserEvent>
+    for App<F, A>
 {
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
 

@@ -1,3 +1,4 @@
+use glium::framebuffer::SimpleFrameBuffer;
 use glium::glutin::surface::WindowSurface;
 use glium::texture::{ClientFormat, MipmapsOption, RawImage2d, Texture2d};
 use glium::uniforms::{SamplerWrapFunction, UniformValue, Uniforms};
@@ -19,59 +20,61 @@ struct Vertex {
 
 implement_vertex!(Vertex, position, tex_coords);
 
-pub struct Gfx<const ROT_90: bool, T> {
+pub struct Gfx<T> {
     filter: T,
     display: GliumContext,
-    indicies: glium::index::NoIndices,
+    indices: glium::index::NoIndices,
     program: Program,
+    simple_draw: Program,
     vertex_buffer: VertexBuffer<Vertex>,
-    size: (f64, f64),
+    rotated_vertex_buffer: VertexBuffer<Vertex>,
     frame: Frame,
     back_buffer: GfxBackBuffer,
+    frame_buffer: glium::Texture2d,
 }
 
-impl<const ROT_90: bool, T: Filter<GliumContext>> Gfx<ROT_90, T> {
+impl<T: Filter<GliumContext>> Gfx<T> {
     pub fn new(display: Display<WindowSurface>, back_buffer: GfxBackBuffer, filter: T) -> Self {
-        let shape = if ROT_90 {
-            let top_right = Vertex {
-                position: [1.0, 1.0],
-                tex_coords: [1.0, 1.0],
-            };
-            let top_left = Vertex {
-                position: [-1.0, 1.0],
-                tex_coords: [1.0, 0.0],
-            };
-            let bottom_left = Vertex {
-                position: [-1.0, -1.0],
-                tex_coords: [0.0, 0.0],
-            };
-            let bottom_right = Vertex {
-                position: [1.0, -1.0],
-                tex_coords: [0.0, 1.0],
-            };
-            [top_right, top_left, bottom_left, bottom_right]
-        } else {
-            let top_right = Vertex {
-                position: [1.0, 1.0],
-                tex_coords: [1.0, 0.0],
-            };
-            let top_left = Vertex {
-                position: [-1.0, 1.0],
-                tex_coords: [0.0, 0.0],
-            };
-            let bottom_left = Vertex {
-                position: [-1.0, -1.0],
-                tex_coords: [0.0, 1.0],
-            };
-            let bottom_right = Vertex {
-                position: [1.0, -1.0],
-                tex_coords: [1.0, 1.0],
-            };
-            [top_right, top_left, bottom_left, bottom_right]
+        let top_right = Vertex {
+            position: [1.0, 1.0],
+            tex_coords: [1.0, 0.0],
         };
+        let top_left = Vertex {
+            position: [-1.0, 1.0],
+            tex_coords: [0.0, 0.0],
+        };
+        let bottom_left = Vertex {
+            position: [-1.0, -1.0],
+            tex_coords: [0.0, 1.0],
+        };
+        let bottom_right = Vertex {
+            position: [1.0, -1.0],
+            tex_coords: [1.0, 1.0],
+        };
+        let shape = [top_right, top_left, bottom_left, bottom_right];
 
         let vertex_buffer = VertexBuffer::new(&display, &shape).unwrap();
-        let indicies = glium::index::NoIndices(glium::index::PrimitiveType::TriangleFan);
+        let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleFan);
+
+        let top_right = Vertex {
+            position: [1.0, 1.0],
+            tex_coords: [1.0, 0.0],
+        };
+        let top_left = Vertex {
+            position: [-1.0, 1.0],
+            tex_coords: [1.0, 1.0],
+        };
+        let bottom_left = Vertex {
+            position: [-1.0, -1.0],
+            tex_coords: [0.0, 1.0],
+        };
+        let bottom_right = Vertex {
+            position: [1.0, -1.0],
+            tex_coords: [0.0, 0.0],
+        };
+        let shape = [top_right, top_left, bottom_left, bottom_right];
+
+        let rotated_vertex_buffer = VertexBuffer::new(&display, &shape).unwrap();
 
         let program = Program::from_source(
             &display,
@@ -88,25 +91,43 @@ impl<const ROT_90: bool, T: Filter<GliumContext>> Gfx<ROT_90, T> {
             Err(e) => panic!("{e:?}"),
         };
 
-        let size = filter.dimensions();
-        let size = (size.0 as f64, size.1 as f64);
+        let quad_shaders = super::filters::Preprocessor::new(super::filters::TEXTURED_QUAD_SHADER)
+            .process()
+            .unwrap();
+        let simple_draw = Program::from_source(
+            &display,
+            &*quad_shaders.vertex,
+            &*quad_shaders.fragment,
+            None,
+        );
+
+        let simple_draw = match simple_draw {
+            Ok(p) => p,
+            Err(glium::CompilationError(msg, kind)) => {
+                panic!("Shader Compilation Error '{kind:?}':\n{msg}")
+            }
+            Err(e) => panic!("{e:?}"),
+        };
+
+        let (width, height) = display.get_framebuffer_dimensions();
+        let frame_buffer = Texture2d::empty(&display, height, width).unwrap();
 
         Self {
             filter,
             display: GliumContext(display),
-            indicies,
+            indices,
             program,
+            simple_draw,
             vertex_buffer,
-            size,
+            rotated_vertex_buffer,
             back_buffer,
             frame: Frame::new(),
+            frame_buffer,
         }
     }
 
     pub fn resize(&mut self, size: (u32, u32)) {
         self.display.resize(size);
-        let size = (size.0 as f64, size.1 as f64);
-        self.size = size;
     }
 
     pub fn swap(&mut self) {
@@ -114,24 +135,27 @@ impl<const ROT_90: bool, T: Filter<GliumContext>> Gfx<ROT_90, T> {
     }
 
     pub fn render(&mut self) {
-        let mut target = self.display.draw();
+        let (surface_width, surface_height) = self.display.get_framebuffer_dimensions();
+        // render at 90 degrees
+        let (surface_width, surface_height) = (surface_height, surface_width);
+        if (surface_width, surface_height) != self.frame_buffer.dimensions() {
+            let Ok(frame_buffer) = Texture2d::empty(&*self.display, surface_width, surface_height)
+            else {
+                return;
+            };
+            self.frame_buffer = frame_buffer;
+        }
 
-        let (filter_width, filter_height) = if ROT_90 {
-            let (height, width) = self.filter.dimensions();
-            (width, height)
-        } else {
-            self.filter.dimensions()
-        };
+        let (filter_width, filter_height) = self.filter.dimensions();
+
         let (filter_width, filter_height) = (filter_width as f64, filter_height as f64);
-        let (window_width, window_height) = self.size;
-        let (surface_width, surface_height) = target.get_dimensions();
         let (surface_width, surface_height) = (surface_width as f64, surface_height as f64);
         let filter_ratio = filter_width / filter_height;
         let surface_ratio = surface_width / surface_height;
 
         let (left, bottom, width, height) = if filter_ratio > surface_ratio {
-            let target_height = (1.0 / filter_ratio) * window_height;
-            let target_height = (target_height / window_height) * surface_height * surface_ratio;
+            let target_height = (1.0 / filter_ratio) * surface_height;
+            let target_height = target_height * surface_ratio;
             (
                 0,
                 ((surface_height - target_height) / 2.0) as u32,
@@ -139,9 +163,8 @@ impl<const ROT_90: bool, T: Filter<GliumContext>> Gfx<ROT_90, T> {
                 target_height as u32,
             )
         } else {
-            let target_width = (filter_ratio) * window_width;
-            let target_width =
-                (target_width / window_width) * surface_width * (1.0 / surface_ratio);
+            let target_width = (filter_ratio) * surface_width;
+            let target_width = target_width * (1.0 / surface_ratio);
             (
                 ((surface_width - target_width) / 2.0) as u32,
                 0,
@@ -164,14 +187,33 @@ impl<const ROT_90: bool, T: Filter<GliumContext>> Gfx<ROT_90, T> {
             ..Default::default()
         };
 
-        target.clear_color(0.0, 0.0, 0.0, 1.0);
-        target
+        let Ok(mut frame_buffer) = SimpleFrameBuffer::new(&*self.display, &self.frame_buffer)
+        else {
+            return;
+        };
+        frame_buffer.clear_color(0.0, 0.0, 0.0, 1.0);
+        frame_buffer
             .draw(
                 &self.vertex_buffer,
-                &self.indicies,
+                &self.indices,
                 &self.program,
                 &uniforms,
                 &params,
+            )
+            .unwrap();
+
+        let mut target = self.display.draw();
+        let mut uniforms = self.display.create_uniforms();
+        uniforms.add_2d_uniform_ref("tex", &self.frame_buffer, FilterScaling::Nearest);
+
+        target.clear_color(0.0, 0.0, 0.0, 1.0);
+        target
+            .draw(
+                &self.rotated_vertex_buffer,
+                &self.indices,
+                &self.simple_draw,
+                &uniforms,
+                &Default::default(),
             )
             .unwrap();
         target.finish().unwrap();
@@ -305,8 +347,9 @@ pub enum FilterScaling {
     Nearest,
 }
 
-enum FilterTexture {
+enum FilterTexture<'a> {
     Texture2d(Texture2d),
+    Texture2dRef(&'a Texture2d),
 }
 
 enum FilterUniform<'a> {
@@ -319,7 +362,7 @@ enum FilterUniform<'a> {
 
 pub struct FilterSampler<'a> {
     name: &'a str,
-    texture: FilterTexture,
+    texture: FilterTexture<'a>,
     scaling: FilterScaling,
 }
 
@@ -338,6 +381,16 @@ impl<'a> UniformCollection<'a> {
         let uni = FilterSampler {
             name,
             texture: FilterTexture::Texture2d(tex),
+            scaling: scale,
+        };
+
+        self.uniforms.push(FilterUniform::Sampler(uni));
+    }
+
+    pub fn add_2d_uniform_ref(&mut self, name: &'a str, tex: &'a Texture2d, scale: FilterScaling) {
+        let uni = FilterSampler {
+            name,
+            texture: FilterTexture::Texture2dRef(tex),
             scaling: scale,
         };
 
@@ -376,6 +429,9 @@ impl<'a> Uniforms for UniformCollection<'a> {
 
                     match uni.texture {
                         FilterTexture::Texture2d(ref tex) => {
+                            visit(uni.name, UniformValue::Texture2d(tex, Some(sampler)));
+                        }
+                        FilterTexture::Texture2dRef(tex) => {
                             visit(uni.name, UniformValue::Texture2d(tex, Some(sampler)));
                         }
                     }
