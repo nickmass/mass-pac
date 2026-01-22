@@ -97,11 +97,11 @@ impl Registers {
     }
 
     pub fn flag_iff2(&self) -> bool {
-        Flag::<0, _>(&self.iff).get()
+        Flag::<1, _>(&self.iff).get()
     }
 
-    pub fn flag_iff2_mut(&mut self) -> Flag<0, &mut u8> {
-        Flag::<0, _>(&mut self.iff)
+    pub fn flag_iff2_mut(&mut self) -> Flag<1, &mut u8> {
+        Flag::<1, _>(&mut self.iff)
     }
 
     pub fn set_flags_szv(&mut self, value: u8) {
