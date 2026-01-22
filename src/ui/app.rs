@@ -1,6 +1,11 @@
+use std::time::{Duration, Instant};
+
 use glium::glutin::config::ConfigTemplateBuilder;
 use glium::winit;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::PhysicalKey;
+use winit::window::Window;
 
 use super::audio::Audio;
 use super::filters::Filter;
@@ -27,19 +32,19 @@ impl From<UserInput> for EmulatorInput {
 pub struct App<F, A> {
     audio: A,
     gfx: Gfx<F>,
-    window: winit::window::Window,
-    event_loop: Option<winit::event_loop::EventLoop<UserEvent>>,
+    window: Window,
+    event_loop: Option<EventLoop<UserEvent>>,
     input: InputMap,
     input_tx: Option<std::sync::mpsc::Sender<EmulatorInput>>,
     back_buffer: GfxBackBuffer,
     pause: bool,
+    mouse_show_time: Instant,
+    cursor_visible: bool,
 }
 
 impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
     pub fn new(filter: F, audio: A) -> Self {
-        let event_loop = winit::event_loop::EventLoop::with_user_event()
-            .build()
-            .unwrap();
+        let event_loop = EventLoop::with_user_event().build().unwrap();
 
         // rotate dimensions to adjust for game rendering at 90 degrees
         let (width, height) = {
@@ -72,6 +77,8 @@ impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
             input: InputMap::new(),
             input_tx: None,
             pause: false,
+            mouse_show_time: Instant::now(),
+            cursor_visible: false,
         }
     }
 
@@ -111,32 +118,44 @@ impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
 
         panic!("{:?}", err)
     }
+
+    fn update_cursor(&mut self, mouse_moved: bool) {
+        if mouse_moved && !self.cursor_visible {
+            self.window.set_cursor_visible(true);
+            self.mouse_show_time = Instant::now();
+            self.cursor_visible = true;
+        } else if !mouse_moved
+            && self.cursor_visible
+            && self.mouse_show_time.elapsed() > Duration::from_secs(1)
+        {
+            self.window.set_cursor_visible(false);
+            self.cursor_visible = false;
+        }
+    }
 }
 
 impl<F: Filter<GliumContext>, A: Audio> winit::application::ApplicationHandler<UserEvent>
     for App<F, A>
 {
-    fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
     fn window_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
+        event_loop: &ActiveEventLoop,
         _window_id: winit::window::WindowId,
-        event: winit::event::WindowEvent,
+        event: WindowEvent,
     ) {
+        self.update_cursor(false);
+
         match event {
-            winit::event::WindowEvent::Resized(size) => {
+            WindowEvent::Resized(size) => {
                 self.gfx.resize(size.into());
                 self.window.request_redraw();
             }
-            winit::event::WindowEvent::CloseRequested => {
+            WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
-            winit::event::WindowEvent::KeyboardInput {
-                device_id: _,
-                event,
-                is_synthetic: _,
-            } => {
+            WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(key) = event.physical_key {
                     if event.state.is_pressed() {
                         self.input.press(key);
@@ -154,23 +173,23 @@ impl<F: Filter<GliumContext>, A: Audio> winit::application::ApplicationHandler<U
                     }
                 }
             }
-            winit::event::WindowEvent::ScaleFactorChanged {
-                scale_factor: _,
-                inner_size_writer: _,
-            } => {
+            WindowEvent::ScaleFactorChanged { .. } => {
                 self.window.request_redraw();
             }
-            winit::event::WindowEvent::RedrawRequested => {
+            WindowEvent::RedrawRequested => {
                 if self.window.is_visible() != Some(false) {
                     self.gfx.render();
                 }
+            }
+            WindowEvent::CursorMoved { .. } => {
+                self.update_cursor(true);
             }
             _ => (),
         }
         self.send_inputs();
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Frame => {
                 self.gfx.swap();
