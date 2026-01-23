@@ -1,16 +1,18 @@
-#![feature(local_waker)]
-
-mod pacman;
-mod ui;
-
 use std::fs::File;
 use std::path::PathBuf;
 
-use ui::app::App;
-use ui::audio::{Audio, AudioDevices, Null, PipewireAudio, SamplesSender};
-use ui::filters::{CrtFilter, Filter, PixelatedFilter};
-use ui::gfx::GliumContext;
-use ui::runner::Runner;
+mod app;
+mod audio;
+mod filters;
+mod gfx;
+mod input;
+mod runner;
+
+use app::App;
+use audio::{Audio, AudioDevices, Null, PipewireAudio, SamplesSender};
+use filters::{CrtFilter, Filter, PixelatedFilter};
+use gfx::GliumContext;
+use runner::Runner;
 
 fn main() {
     let mut args: Vec<_> = std::env::args().skip(1).collect();

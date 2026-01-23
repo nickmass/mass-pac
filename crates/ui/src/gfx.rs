@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+use std::sync::{Arc, Mutex};
+
 use glium::framebuffer::SimpleFrameBuffer;
 use glium::glutin::surface::WindowSurface;
 use glium::texture::{ClientFormat, MipmapsOption, RawImage2d, Texture2d};
@@ -5,12 +8,8 @@ use glium::uniforms::{SamplerWrapFunction, UniformValue, Uniforms};
 use glium::winit::event_loop::EventLoopProxy;
 use glium::{Display, Program, Surface, VertexBuffer, implement_vertex};
 
-use std::borrow::Cow;
-use std::sync::{Arc, Mutex};
-
-use super::filters::{Filter, FilterContext, FilterUniforms, TextureFormat};
-
 use super::app::UserEvent;
+use super::filters::{Filter, FilterContext, FilterUniforms, TextureFormat};
 
 #[derive(Copy, Clone)]
 struct Vertex {

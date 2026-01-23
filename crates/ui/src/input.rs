@@ -1,8 +1,7 @@
-use winit::keyboard::KeyCode;
-
 use std::collections::HashMap;
 
-use crate::pacman::Player;
+use pacman::Player;
+use winit::keyboard::KeyCode;
 
 pub struct InputMap {
     map: HashMap<InputType, bool>,

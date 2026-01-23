@@ -69,8 +69,8 @@ pub enum TextureFilter {
     Nearest,
 }
 
-pub(crate) const PIXELATED_SHADER: &'static str = include_str!("../../../shaders/pixelated.glsl");
-pub(crate) const CRT_SHADER: &'static str = include_str!("../../../shaders/crt.glsl");
+pub(crate) const PIXELATED_SHADER: &'static str = include_str!("../../shaders/pixelated.glsl");
+pub(crate) const CRT_SHADER: &'static str = include_str!("../../shaders/crt.glsl");
 pub(crate) const TEXTURED_QUAD_SHADER: &'static str =
-    include_str!("../../../shaders/textured_quad.glsl");
-pub(crate) const PRELUDE_SHADER: &'static str = include_str!("../../../shaders/prelude_gl.glsl");
+    include_str!("../../shaders/textured_quad.glsl");
+pub(crate) const PRELUDE_SHADER: &'static str = include_str!("../../shaders/prelude_gl.glsl");

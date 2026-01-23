@@ -1,3 +1,5 @@
+#![feature(local_waker)]
+
 use std::cell::Cell;
 use std::pin::Pin;
 use std::rc::Rc;

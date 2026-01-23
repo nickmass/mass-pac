@@ -1,12 +1,11 @@
 use std::time::Duration;
 
-use super::audio::SamplesSender;
-use blip_buf::BlipBuf;
-
 use super::app::{EmulatorInput, SystemInputs};
+use super::audio::SamplesSender;
 use super::gfx::GfxBackBuffer;
 
-use crate::pacman::{DipSettings, Rom, System, dip};
+use blip_buf::BlipBuf;
+use pacman::{DipSettings, Rom, System, dip};
 
 pub struct Runner {
     machine: System,

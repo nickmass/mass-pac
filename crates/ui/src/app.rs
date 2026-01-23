@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use glium::glutin::config::ConfigTemplateBuilder;
 use glium::winit;
+use pacman::UserInput;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::PhysicalKey;
@@ -11,8 +12,6 @@ use super::audio::Audio;
 use super::filters::Filter;
 use super::gfx::{Gfx, GfxBackBuffer, GliumContext};
 use super::input::InputMap;
-
-use crate::pacman::UserInput;
 
 pub enum UserEvent {
     Frame,
