@@ -1,3 +1,6 @@
+use save_states::SaveState;
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Copy, Clone)]
 pub enum UserInput {
     Player(Player),
@@ -10,7 +13,7 @@ impl Default for UserInput {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Deserialize, Serialize)]
 pub struct Player {
     pub up: bool,
     pub down: bool,
@@ -72,7 +75,7 @@ impl Player {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
 pub struct DipSettings {
     pub cost: dip::Cost,
     pub lives: dip::Lives,
@@ -93,8 +96,9 @@ impl DipSettings {
 
 pub mod dip {
     #![allow(unused)]
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Copy, Clone, Default)]
+    #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
     #[repr(u8)]
     pub enum Cost {
         FreePlay = 0x00,
@@ -104,7 +108,7 @@ pub mod dip {
         TwoCoinsPerCredit = 0x03,
     }
 
-    #[derive(Debug, Copy, Clone, Default)]
+    #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
     #[repr(u8)]
     pub enum Lives {
         One = 0x00,
@@ -114,7 +118,7 @@ pub mod dip {
         Five = 0x0c,
     }
 
-    #[derive(Debug, Copy, Clone, Default)]
+    #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
     #[repr(u8)]
     pub enum BonusLife {
         Score10000 = 0x00,
@@ -124,7 +128,7 @@ pub mod dip {
         None = 0x30,
     }
 
-    #[derive(Debug, Copy, Clone, Default)]
+    #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
     #[repr(u8)]
     pub enum Difficulty {
         Hard = 0x00,
@@ -132,7 +136,7 @@ pub mod dip {
         Normal = 0x40,
     }
 
-    #[derive(Debug, Copy, Clone, Default)]
+    #[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
     #[repr(u8)]
     pub enum GhostNames {
         Alternate = 0x00,
@@ -141,7 +145,7 @@ pub mod dip {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, SaveState)]
 pub struct Input {
     player: Player,
     dip: DipSettings,

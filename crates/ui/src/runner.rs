@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use super::app::{EmulatorInput, SystemInputs};
@@ -14,6 +15,7 @@ pub struct Runner {
     samples_tx: SamplesSender,
     blip: BlipBuf,
     blip_delta: i32,
+    save_store: SaveStore,
     frame: Option<u32>,
 }
 
@@ -39,6 +41,7 @@ impl Runner {
             samples_tx,
             blip,
             blip_delta: 0,
+            save_store: SaveStore::new(32000, 5),
             frame: None,
         }
     }
@@ -52,6 +55,12 @@ impl Runner {
             for input in inputs.try_inputs() {
                 match input {
                     EmulatorInput::System(input) => self.machine.handle_input(input),
+                    EmulatorInput::Rewind => {
+                        if let Some((frame, data)) = self.save_store.pop() {
+                            self.frame = Some(frame as u32);
+                            self.machine.restore_state(&data);
+                        }
+                    }
                 }
             }
 
@@ -71,6 +80,8 @@ impl Runner {
         let frame = self.machine.frame();
         if self.frame != Some(frame) {
             self.frame = Some(frame);
+            self.save_store
+                .push(frame as usize, || self.machine.save_state());
             self.update_frame();
         }
     }
@@ -90,5 +101,39 @@ impl Runner {
         self.back_buffer.update(|frame| {
             frame.copy_from_slice(self.machine.screen());
         });
+    }
+}
+
+struct SaveStore {
+    limit: usize,
+    freq: usize,
+    saves: VecDeque<(usize, pacman::SaveData)>,
+}
+
+impl SaveStore {
+    fn new(limit: usize, freq: usize) -> Self {
+        Self {
+            limit,
+            freq,
+            saves: VecDeque::new(),
+        }
+    }
+
+    fn pop(&mut self) -> Option<(usize, pacman::SaveData)> {
+        self.saves.pop_back()
+    }
+
+    fn push<F: FnOnce() -> pacman::SaveData>(&mut self, frame: usize, func: F) {
+        if frame % self.freq != 0 {
+            return;
+        }
+
+        let data = func();
+
+        if self.saves.len() == self.limit {
+            self.saves.pop_front();
+        }
+
+        self.saves.push_back((frame, data));
     }
 }

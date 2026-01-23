@@ -52,6 +52,10 @@ impl InputMap {
     pub fn pause(&self) -> bool {
         self.is_pressed(KeyCode::Space)
     }
+
+    pub fn rewind(&self) -> bool {
+        self.is_pressed(KeyCode::Tab)
+    }
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

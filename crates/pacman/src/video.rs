@@ -1,3 +1,5 @@
+use save_states::SaveState;
+
 use super::CPU_CLOCK;
 use super::mem::Memory;
 use super::rom::BaseRom;
@@ -41,11 +43,15 @@ impl From<u8> for Color {
 const FRAME_RATE: u64 = 60;
 const FRAME_TICKS: u64 = CPU_CLOCK / FRAME_RATE;
 
+#[derive(SaveState)]
 pub struct Video {
     ticks: u64,
+    #[save(skip)]
     rgb_colors: [Color; 0x20],
+    #[save(skip)]
     tile_map: [u16; 0x480],
     spr_data: [u8; 0x10],
+    #[save(skip)]
     screen: RawImage,
     interrupt_enable: bool,
     interrupt_data: u8,

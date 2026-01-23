@@ -1,11 +1,12 @@
 [package]
-name = "pacman"
+name = "save-states"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
 
 [dependencies]
-save-states = { path = "../save-states" }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_arrays = { version = "0.2.0" }
+save-states-derive = { path = "../save-states-derive" }
+postcard = { version = "1.0.10", features = ["alloc"] }

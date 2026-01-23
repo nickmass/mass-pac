@@ -1,3 +1,6 @@
+use save_states::SaveState;
+use serde::{Deserialize, Serialize};
+
 use super::CPU_CLOCK;
 use super::rom::BaseRom;
 
@@ -13,8 +16,10 @@ impl WavData {
 const AUDIO_CLOCK: u64 = 96000;
 const PERIOD: u64 = CPU_CLOCK / AUDIO_CLOCK;
 
+#[derive(SaveState)]
 pub struct Sound {
     counter: u64,
+    #[save(skip)]
     samples: Vec<i16>,
     regs: [u8; 0x20],
     chan_0: ChannelState<0>,
@@ -105,6 +110,7 @@ impl<'a> std::ops::Drop for Samples<'a> {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct ChannelState<const ID: usize> {
     accumulator: u32,
     sample: i16,

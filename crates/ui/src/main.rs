@@ -53,7 +53,7 @@ fn main() {
     let input = app.system_io();
     let back_buffer = app.back_buffer();
 
-    std::thread::Builder::new()
+    let handle = std::thread::Builder::new()
         .name("machine".into())
         .spawn(move || {
             let runner = Runner::new(rom, input, back_buffer, samples_tx, sample_rate);
@@ -62,7 +62,7 @@ fn main() {
         })
         .unwrap();
 
-    app.run();
+    app.run(handle);
 }
 
 fn init_audio() -> (AudioDevices, SamplesSender) {

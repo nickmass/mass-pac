@@ -1,6 +1,9 @@
 use std::future::poll_fn;
 use std::task::Poll;
 
+use save_states::SaveState;
+use serde::{Deserialize, Serialize};
+
 mod instructions;
 mod registers;
 
@@ -11,7 +14,26 @@ use instructions::{
 };
 use registers::{IndexMode, Reg8, Reg16, Registers};
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum CpuTickInput {
+    Tick(CpuPinInputs),
+    SaveState,
+    RestoreState(CpuPinOutputs),
+}
+
+impl std::default::Default for CpuTickInput {
+    fn default() -> Self {
+        Self::Tick(Default::default())
+    }
+}
+
+impl From<CpuPinInputs> for CpuTickInput {
+    fn from(value: CpuPinInputs) -> Self {
+        Self::Tick(value)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
 pub struct CpuPinInputs {
     pub data: u8,
     pub nmi: bool,
@@ -19,7 +41,7 @@ pub struct CpuPinInputs {
     pub reset: bool,
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize)]
 pub enum CpuPinOutputs {
     Read(u16),
     Write(u16, u8),
@@ -30,14 +52,16 @@ pub enum CpuPinOutputs {
     Idle,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum InstructionPrefix {
     None,
     CB,
     ED,
 }
 
+#[derive(SaveState)]
 pub struct Cpu {
+    #[save(skip)]
     insts: Instructions,
     regs: Registers,
     inputs: CpuPinInputs,
@@ -47,6 +71,10 @@ pub struct Cpu {
     pending_nmi: bool,
     pending_int: bool,
     inhibit_interrupts: bool,
+    #[save(skip)]
+    checkpoint: bool,
+    #[save(skip)]
+    checkpoint_data: Option<CpuData>,
 }
 
 impl Cpu {
@@ -61,6 +89,8 @@ impl Cpu {
             pending_nmi: false,
             pending_int: false,
             inhibit_interrupts: false,
+            checkpoint: false,
+            checkpoint_data: None,
         }
     }
 
@@ -680,10 +710,13 @@ impl Cpu {
     }
 
     async fn fetch(&mut self) -> u8 {
+        self.checkpoint = true;
+        self.tick().await;
+        // Must update PC after .await point to avoid altering state before start of run() and first yield point
+        // to allow for clean resume after a checkpoint
         let pc = self.regs.pc();
         self.regs.inc(Reg16::PC);
         self.regs.inc(Reg8::R);
-        self.tick().await;
         self.read(pc).await
     }
 
@@ -782,19 +815,46 @@ impl Cpu {
         self.inputs.data
     }
 
-    async fn do_yield(&mut self, output: CpuPinOutputs) {
+    async fn do_yield(&mut self, mut output: CpuPinOutputs) {
         let mut yielded = false;
+        let mut was_checkpoint = self.checkpoint;
+        self.checkpoint = false;
         let inputs = poll_fn(|cx| {
             use super::TickState;
             let waker = CpuTickState::from_context(cx);
 
             if !yielded {
+                waker.set_checkpoint(was_checkpoint, output);
                 waker.set_output(output);
+                if was_checkpoint {
+                    self.checkpoint_data = Some(self.save_state());
+                }
                 yielded = true;
                 Poll::Pending
             } else {
-                let inputs = waker.input();
-                Poll::Ready(inputs)
+                waker.set_checkpoint(false, output);
+                let input = waker.input();
+                match input {
+                    CpuTickInput::Tick(inputs) => Poll::Ready(inputs),
+                    CpuTickInput::SaveState => {
+                        let save_data = self
+                            .checkpoint_data
+                            .as_ref()
+                            .expect("no save_state CpuData")
+                            .clone();
+                        waker.set_save_data(save_data);
+                        Poll::Pending
+                    }
+                    CpuTickInput::RestoreState(save_output) => {
+                        let save_data = waker.save_data().expect("no restore_state CpuData");
+                        self.restore_state(&save_data);
+                        output = save_output;
+                        yielded = false;
+                        was_checkpoint = false;
+                        self.checkpoint = false;
+                        Poll::Pending
+                    }
+                }
             }
         })
         .await;

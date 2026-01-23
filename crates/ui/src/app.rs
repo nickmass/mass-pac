@@ -1,3 +1,4 @@
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use glium::glutin::config::ConfigTemplateBuilder;
@@ -20,6 +21,7 @@ pub enum UserEvent {
 #[derive(Debug, Copy, Clone)]
 pub enum EmulatorInput {
     System(UserInput),
+    Rewind,
 }
 
 impl From<UserInput> for EmulatorInput {
@@ -39,6 +41,7 @@ pub struct App<F, A> {
     pause: bool,
     mouse_show_time: Instant,
     cursor_visible: bool,
+    runner_thread: Option<JoinHandle<()>>,
 }
 
 impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
@@ -78,6 +81,7 @@ impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
             pause: false,
             mouse_show_time: Instant::now(),
             cursor_visible: false,
+            runner_thread: None,
         }
     }
 
@@ -100,11 +104,16 @@ impl<F: Filter<GliumContext>, A: Audio> App<F, A> {
                 let _ = tx.send(UserInput::Reset.into());
             }
 
+            if self.input.rewind() {
+                let _ = tx.send(EmulatorInput::Rewind);
+            }
+
             let _ = tx.send(UserInput::Player(p1).into());
         }
     }
 
-    pub fn run(mut self) -> ! {
+    pub fn run(mut self, runner_thread: JoinHandle<()>) -> ! {
+        self.runner_thread = Some(runner_thread);
         let Some(event_loop) = self.event_loop.take() else {
             panic!("no event loop created");
         };
@@ -144,6 +153,12 @@ impl<F: Filter<GliumContext>, A: Audio> winit::application::ApplicationHandler<U
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        if let Some(runner_thread) = self.runner_thread.as_ref() {
+            if runner_thread.is_finished() {
+                event_loop.exit();
+            }
+        }
+
         self.update_cursor(false);
 
         match event {

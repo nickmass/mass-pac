@@ -1,3 +1,6 @@
+use save_states::SaveState;
+
+#[derive(SaveState)]
 pub struct Memory {
     ram: Vec<u8>,
 }

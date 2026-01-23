@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use super::{InstructionPrefix, Reg8, Reg16, Registers};
 
 #[derive(Debug, Copy, Clone)]
@@ -504,7 +506,7 @@ impl OpcodePart for u8 {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InterruptMode {
     Zero,
     One,

@@ -1,5 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
+use serde::{Deserialize, Serialize};
+
 macro_rules! define_flag {
     ($name:ident, $name_mut:ident, $bit:literal$( , self.$reg:ident)?) => {
         #[inline(always)]
@@ -20,7 +22,7 @@ macro_rules! define_flag {
     };
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[repr(C, align(2))]
 struct RegArray {
     regs: [u8; 26],
@@ -40,7 +42,7 @@ impl std::ops::DerefMut for RegArray {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Registers {
     regs: RegArray,
     iff: u8,
@@ -437,7 +439,7 @@ impl<const N: u8, T: DerefMut<Target = u8>> Flag<N, T> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum IndexMode {
     HL,
     IX,

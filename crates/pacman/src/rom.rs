@@ -1,8 +1,17 @@
+use save_states::SaveState;
+use serde::{Deserialize, Serialize};
+
+#[derive(SaveState)]
 pub struct BaseRom {
+    #[save(skip)]
     color: [u8; 0x100],
+    #[save(skip)]
     palette: [u8; 0x20],
+    #[save(skip)]
     prg: Prg,
+    #[save(skip)]
     chr: [[u8; 0x1000]; 2],
+    #[save(skip)]
     snd: [[u8; 0x100]; 2],
 }
 
@@ -127,9 +136,12 @@ fn bit_swap_u16<const N: usize>(value: u16, bits: [u8; N]) -> u16 {
     result
 }
 
+#[derive(SaveState)]
 pub struct ExpansionRom {
+    #[save(skip)]
     base: BaseRom,
     enable_decode: bool,
+    #[save(skip)]
     patched_prg: DecryptPrg,
 }
 
@@ -261,6 +273,31 @@ impl std::ops::Deref for Rom {
         match self {
             Rom::Base(base) => base,
             Rom::Expansion(exp) => &exp.base,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum RomData {
+    Base(BaseRomData),
+    Expansion(ExpansionRomData),
+}
+
+impl SaveState for Rom {
+    type Data = RomData;
+
+    fn save_state(&self) -> Self::Data {
+        match self {
+            Rom::Base(base) => RomData::Base(base.save_state()),
+            Rom::Expansion(exp) => RomData::Expansion(exp.save_state()),
+        }
+    }
+
+    fn restore_state(&mut self, state: &Self::Data) {
+        match (self, state) {
+            (Rom::Base(base), RomData::Base(state)) => base.restore_state(state),
+            (Rom::Expansion(exp), RomData::Expansion(state)) => exp.restore_state(state),
+            _ => panic!("invalid RomSaveData"),
         }
     }
 }
