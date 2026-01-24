@@ -21,26 +21,28 @@ pub use rom::{Rom, RomBuilder};
 use serde::{Deserialize, Serialize};
 use sound::{Samples, Sound};
 use video::Video;
-use z80::{Cpu, CpuPinInputs, CpuPinOutputs, CpuTickInput};
+use z80::{Cpu, CpuPinInputs, CpuPinOutputs};
 
 const CPU_CLOCK: u64 = 3072000;
 
-pub use SystemData as SaveData;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SaveData {
+    cpu: z80::CpuData,
+    memory: mem::MemoryData,
+    video: video::VideoData,
+    sound: sound::SoundData,
+    input: input::InputData,
+    cpu_input: CpuPinInputs,
+    rom: rom::RomData,
+}
 
-#[derive(SaveState)]
 pub struct System {
-    #[save(nested)]
     cpu: Ticker<CpuTickState>,
-    #[save(nested)]
     memory: Memory,
-    #[save(nested)]
     video: Video,
-    #[save(nested)]
     sound: Sound,
-    #[save(nested)]
     input: Input,
     cpu_input: CpuPinInputs,
-    #[save(nested)]
     rom: Rom,
 }
 
@@ -89,6 +91,9 @@ impl System {
                 }
                 CpuPinOutputs::InterruptAck => Some(self.video.interrupt_ack()),
                 CpuPinOutputs::Idle => None,
+                CpuPinOutputs::Break => {
+                    break;
+                }
             };
 
             self.sound.tick(&self.rom);
@@ -119,70 +124,79 @@ impl System {
         self.sound.samples()
     }
 
-    pub fn save_state(&self) -> SaveData {
-        <Self as SaveState>::save_state(self)
+    pub fn save_state(&mut self) -> SaveData {
+        self.cpu.request_save_state();
+        self.run(self.audio_clock() as u32);
+        let cpu = self
+            .cpu
+            .save_data()
+            .expect("cpu returned without setting save data");
+
+        SaveData {
+            cpu,
+            memory: self.memory.save_state(),
+            video: self.video.save_state(),
+            sound: self.sound.save_state(),
+            input: self.input.save_state(),
+            cpu_input: self.cpu_input.clone(),
+            rom: self.rom.save_state(),
+        }
     }
 
-    pub fn restore_state(&mut self, state: &SaveData) {
-        <Self as SaveState>::restore_state(self, state);
+    pub fn restore_state(&mut self, state: SaveData) {
+        self.cpu.request_break();
+        self.run(self.audio_clock() as u32);
+        self.cpu.set_save_data(state.cpu);
+        self.memory.restore_state(&state.memory);
+        self.video.restore_state(&state.video);
+        self.sound.restore_state(&state.sound);
+        self.input.restore_state(&state.input);
+        self.cpu_input = state.cpu_input.clone();
+        self.rom.restore_state(&state.rom);
     }
 }
 
 struct Ticker<T> {
-    future: RefCell<Pin<Box<dyn Future<Output = ()>>>>,
+    future: Pin<Box<dyn Future<Output = ()>>>,
     waker: Rc<T>,
 }
 
 impl<T: TickState> Ticker<T> {
     fn new<F: Future<Output = ()> + 'static>(state: T, future: F) -> Self {
         Self {
-            future: RefCell::new(Box::pin(future)),
+            future: Box::pin(future),
             waker: Rc::new(state),
         }
     }
 
-    fn tick<I: Into<T::Input>>(&self, input: I) -> T::Output {
+    fn tick<I: Into<T::Input>>(&mut self, input: I) -> T::Output {
         let input = input.into();
         self.waker.set_input(input);
         let local_waker = LocalWaker::from(self.waker.clone());
         let mut ctx = ContextBuilder::from_waker(Waker::noop())
             .local_waker(&local_waker)
             .build();
-        let mut future = self.future.borrow_mut();
-        let _ = future.as_mut().poll(&mut ctx);
+        let _ = self.future.as_mut().poll(&mut ctx);
         let state = T::from_context(&ctx);
         state.output()
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct CpuTickerData {
-    cpu: z80::CpuData,
-    input: CpuTickInput,
-    output: CpuPinOutputs,
-}
-
-impl SaveState for Ticker<CpuTickState> {
-    type Data = CpuTickerData;
-
-    fn save_state(&self) -> Self::Data {
-        let _ = self.tick(CpuTickInput::SaveState);
-        let cpu = self.waker.save_data().expect("no CpuData stored");
-        CpuTickerData {
-            cpu,
-            input: self.waker.save_input.get(),
-            output: self.waker.save_output.get(),
-        }
+impl Ticker<CpuTickState> {
+    fn request_break(&self) {
+        self.waker.set_request(TickRequest::Break);
     }
 
-    fn restore_state(&mut self, state: &Self::Data) {
-        self.waker.set_checkpoint(false, state.output);
-        while !self.waker.checkpoint() {
-            let _ = self.tick(CpuTickInput::Tick(CpuPinInputs::default()));
-        }
-        self.waker.set_save_data(state.cpu.clone());
-        let _ = self.tick(CpuTickInput::RestoreState(state.output));
-        self.waker.set_input(state.input);
+    fn request_save_state(&self) {
+        self.waker.set_request(TickRequest::SaveState);
+    }
+
+    fn set_save_data(&self, data: z80::CpuData) {
+        self.waker.set_request(TickRequest::RestoreState(data));
+    }
+
+    fn save_data(&self) -> Option<z80::CpuData> {
+        self.waker.take_save_data()
     }
 }
 
@@ -194,24 +208,26 @@ trait TickState: LocalWake + 'static {
     fn from_context<'a>(cx: &'a Context<'_>) -> &'a Self;
 }
 
+enum TickRequest {
+    Break,
+    SaveState,
+    RestoreState(z80::CpuData),
+}
+
 #[derive(Default)]
 struct CpuTickState {
-    input: Cell<CpuTickInput>,
+    input: Cell<CpuPinInputs>,
     output: Cell<CpuPinOutputs>,
-    checkpoint: Cell<bool>,
-    checkpoint_input: Cell<CpuTickInput>,
-    checkpoint_output: Cell<CpuPinOutputs>,
-    save_input: Cell<CpuTickInput>,
-    save_output: Cell<CpuPinOutputs>,
     save_data: RefCell<Option<z80::CpuData>>,
+    request: RefCell<Option<TickRequest>>,
 }
 
 impl CpuTickState {
-    fn set_input(&self, input: CpuTickInput) {
+    fn set_input(&self, input: CpuPinInputs) {
         self.input.set(input);
     }
 
-    fn input(&self) -> CpuTickInput {
+    fn input(&self) -> CpuPinInputs {
         self.input.get()
     }
 
@@ -223,31 +239,25 @@ impl CpuTickState {
         self.output.get()
     }
 
+    fn set_request(&self, req: TickRequest) {
+        self.request.replace(Some(req));
+    }
+
+    fn take_request(&self) -> Option<TickRequest> {
+        self.request.take()
+    }
+
     fn set_save_data(&self, data: z80::CpuData) {
-        *self.save_data.borrow_mut() = Some(data);
-        self.save_input.set(self.checkpoint_input.get());
-        self.save_output.set(self.checkpoint_output.get());
+        self.save_data.replace(Some(data));
     }
 
-    fn save_data(&self) -> Option<z80::CpuData> {
-        self.save_data.borrow().clone()
-    }
-
-    fn set_checkpoint(&self, checkpoint: bool, output: CpuPinOutputs) {
-        self.checkpoint.set(checkpoint);
-        if checkpoint {
-            self.checkpoint_input.set(self.input());
-            self.checkpoint_output.set(output);
-        }
-    }
-
-    fn checkpoint(&self) -> bool {
-        self.checkpoint.get()
+    fn take_save_data(&self) -> Option<z80::CpuData> {
+        self.save_data.replace(None)
     }
 }
 
 impl TickState for CpuTickState {
-    type Input = CpuTickInput;
+    type Input = CpuPinInputs;
 
     type Output = CpuPinOutputs;
 

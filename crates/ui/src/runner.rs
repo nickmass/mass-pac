@@ -58,7 +58,7 @@ impl Runner {
                     EmulatorInput::Rewind => {
                         if let Some((frame, data)) = self.save_store.pop() {
                             self.frame = Some(frame as u32);
-                            self.machine.restore_state(&data);
+                            self.machine.restore_state(data);
                         }
                     }
                 }
