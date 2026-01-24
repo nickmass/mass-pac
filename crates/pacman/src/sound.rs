@@ -82,7 +82,10 @@ impl Sound {
             self.sample = sample << 6;
         }
 
-        self.samples.push(self.sample)
+        // prevent unbounded grow if samples are not being consumed
+        if self.samples.len() <= AUDIO_CLOCK as usize {
+            self.samples.push(self.sample)
+        }
     }
 
     pub fn samples_full(&self, samples: usize) -> bool {
