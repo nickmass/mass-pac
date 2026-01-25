@@ -97,6 +97,7 @@ impl Cpu {
         if self.regs.is_indexing() && inst.uses_index_offset() {
             let offset = self.read_pc().await;
             self.regs.index_offset(offset);
+            self.tick_n(5).await;
         }
 
         self.inhibit_interrupts = false;
@@ -106,6 +107,7 @@ impl Cpu {
             Inst::Add16(src) => {
                 let left = self.regs.get(Reg16::HL);
                 let right = self.load16(src).await;
+                self.tick_n(7).await;
                 let (result, carry) = left.overflowing_add(right);
                 self.regs.set(Reg16::HL, result);
 
@@ -128,12 +130,14 @@ impl Cpu {
             }
             Inst::Call => {
                 let addr = self.load16(LoadLoc16::Operand).await;
+                self.tick().await;
                 self.push16(self.regs.get(Reg16::PC)).await;
                 self.regs.set(Reg16::PC, addr);
             }
             Inst::CallCond(cond) => {
                 let addr = self.load16(LoadLoc16::Operand).await;
                 if cond.check(&self.regs) {
+                    self.tick().await;
                     self.push16(self.regs.get(Reg16::PC)).await;
                     self.regs.set(Reg16::PC, addr);
                 }
@@ -177,6 +181,7 @@ impl Cpu {
             Inst::Dec16(dst, src) => {
                 let old = self.load16(src).await;
                 let new = old.wrapping_sub(1);
+                self.tick_n(2).await;
                 self.store16(dst, new).await;
             }
             Inst::Dec8(dst, src) => {
@@ -195,10 +200,12 @@ impl Cpu {
                 self.pending_int = false;
             }
             Inst::Djnz => {
+                self.tick().await;
                 let offset = self.load8(LoadLoc8::Operand).await;
                 let addr = u16_offset(self.regs.get(Reg16::PC), offset);
                 self.regs.dec(Reg8::B);
                 if self.regs.get(Reg8::B) != 0 {
+                    self.tick_n(5).await;
                     self.regs.set(Reg16::PC, addr);
                 }
             }
@@ -214,10 +221,12 @@ impl Cpu {
             }
             Inst::ExSP => {
                 let addr = self.regs.get(Reg16::SP);
+                self.tick().await;
                 let a = self.read16(addr).await;
                 let b = self.regs.get(Reg16::HL);
                 self.regs.set(Reg16::HL, a);
                 self.write16(addr, b).await;
+                self.tick_n(2).await;
             }
             Inst::Exx => {
                 let swaps = [
@@ -243,6 +252,7 @@ impl Cpu {
             Inst::Inc16(dst, src) => {
                 let old = self.load16(src).await;
                 let new = old.wrapping_add(1);
+                self.tick_n(2).await;
                 self.store16(dst, new).await;
             }
             Inst::Inc8(dst, src) => {
@@ -267,13 +277,15 @@ impl Cpu {
             }
             Inst::Jr => {
                 let offset = self.load8(LoadLoc8::Operand).await;
+                self.tick_n(5).await;
                 let addr = u16_offset(self.regs.get(Reg16::PC), offset);
                 self.regs.set(Reg16::PC, addr);
             }
             Inst::JrCond(cond) => {
                 let offset = self.load8(LoadLoc8::Operand).await;
-                let addr = u16_offset(self.regs.get(Reg16::PC), offset);
                 if cond.check(&self.regs) {
+                    self.tick_n(5).await;
+                    let addr = u16_offset(self.regs.get(Reg16::PC), offset);
                     self.regs.set(Reg16::PC, addr);
                 }
             }
@@ -296,6 +308,7 @@ impl Cpu {
                 self.store16(dst, value).await;
             }
             Inst::Push(src) => {
+                self.tick().await;
                 let value = self.load16(src).await;
                 self.push16(value).await;
             }
@@ -304,12 +317,14 @@ impl Cpu {
                 self.regs.set(Reg16::PC, value);
             }
             Inst::RetCond(cond) => {
+                self.tick().await;
                 if cond.check(&self.regs) {
                     let value = self.pop16().await;
                     self.regs.set(Reg16::PC, value);
                 }
             }
             Inst::Rst(lo) => {
+                self.tick().await;
                 self.push16(self.regs.get(Reg16::PC)).await;
                 let addr = u16(lo, 0);
                 self.regs.set(Reg16::PC, addr);
@@ -331,6 +346,7 @@ impl Cpu {
                 if self.regs.is_indexing() {
                     let offset = self.read_pc().await;
                     self.regs.index_offset(offset);
+                    self.tick_n(5).await;
                 }
             }
             Inst::PrefixIX => {
@@ -343,7 +359,7 @@ impl Cpu {
                 inhibit_mode_reset = true;
                 self.inhibit_interrupts = true;
             }
-            Inst::Unknown => todo!("unknown inst: PC:{:04x}", self.regs.pc()),
+            Inst::Unknown => todo!("unknown inst: PC:{:04x}", self.regs.get(Reg16::PC)),
         }
 
         if !inhibit_mode_reset {
@@ -357,6 +373,7 @@ impl Cpu {
             InstED::Adc16(src) => {
                 let left = self.regs.get(Reg16::HL);
                 let right = self.load16(src).await;
+                self.tick_n(7).await;
 
                 let (left_lo, left_hi) = u8(left);
                 let (right_lo, right_hi) = u8(right);
@@ -372,6 +389,7 @@ impl Cpu {
                 let c = self.regs.flag_c();
                 let a = self.regs.get(Reg8::A);
                 let value = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
+                self.tick_n(5).await;
 
                 let _ = Alu::Cp.op(a, value, &mut self.regs);
 
@@ -385,6 +403,7 @@ impl Cpu {
                 self.regs.flag_c_mut().value(c);
 
                 if bc != 0 && a != value && repeat == Repeat::Repeat {
+                    self.tick_n(5).await;
                     let pc = self.regs.get(Reg16::PC);
                     self.regs.set(Reg16::PC, pc.wrapping_sub(2));
                 }
@@ -394,14 +413,17 @@ impl Cpu {
             }
             InstED::In(dst) => {
                 let value = self.io_read(self.regs.get(Reg16::BC)).await;
+                self.tick().await;
                 self.regs.set_flags_szv(value);
                 self.regs.flag_h_mut().reset();
                 self.regs.flag_n_mut().reset();
                 self.store8(dst, value).await;
             }
             InstED::InBlock(repeat, direction) => {
+                self.tick().await;
                 let value = self.io_read(self.regs.get(Reg16::BC)).await;
                 self.store8(StoreLoc8::RegIndirect(Reg16::HL), value).await;
+                self.tick().await;
                 match direction {
                     instructions::Direction::Inc => {
                         self.regs.inc(Reg16::HL);
@@ -416,6 +438,7 @@ impl Cpu {
                 self.regs.flag_z_mut().value(b != 0);
 
                 if b != 0 && repeat == Repeat::Repeat {
+                    self.tick_n(5).await;
                     let pc = self.regs.get(Reg16::PC);
                     self.regs.set(Reg16::PC, pc.wrapping_sub(2));
                 }
@@ -427,10 +450,12 @@ impl Cpu {
             InstED::Ld8(dst, src) => {
                 let value = self.load8(src).await;
                 self.store8(dst, value).await;
+                self.tick_n(2).await;
             }
             InstED::Ld8Flags(dst, src) => {
                 let value = self.load8(src).await;
                 self.store8(dst, value).await;
+                self.tick_n(2).await;
                 self.regs.flag_s_mut().value(value & 0x80 != 0);
                 self.regs.flag_z_mut().value(value == 0);
                 self.regs.flag_h_mut().reset();
@@ -441,6 +466,7 @@ impl Cpu {
             InstED::LdBlock(repeat, direction) => {
                 let value = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
                 self.store8(StoreLoc8::RegIndirect(Reg16::DE), value).await;
+                self.tick_n(2).await;
                 match direction {
                     instructions::Direction::Inc => {
                         self.regs.inc(Reg16::DE);
@@ -458,6 +484,7 @@ impl Cpu {
                 self.regs.flag_v_mut().value(bc != 0);
 
                 if bc != 0 && repeat == Repeat::Repeat {
+                    self.tick_n(5).await;
                     let pc = self.regs.get(Reg16::PC);
                     self.regs.set(Reg16::PC, pc.wrapping_sub(2));
                 }
@@ -470,10 +497,13 @@ impl Cpu {
             InstED::Out(src) => {
                 let value = self.load8(src).await;
                 self.io_write(self.regs.get(Reg16::BC), value).await;
+                self.tick().await;
             }
             InstED::OutBlock(repeat, direction) => {
+                self.tick().await;
                 let value = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
                 self.io_write(self.regs.get(Reg16::BC), value).await;
+                self.tick().await;
                 match direction {
                     instructions::Direction::Inc => {
                         self.regs.inc(Reg16::HL);
@@ -488,6 +518,7 @@ impl Cpu {
                 self.regs.flag_z_mut().value(b != 0);
 
                 if b != 0 && repeat == Repeat::Repeat {
+                    self.tick_n(5).await;
                     let pc = self.regs.get(Reg16::PC);
                     self.regs.set(Reg16::PC, pc.wrapping_sub(2));
                 }
@@ -505,6 +536,7 @@ impl Cpu {
             InstED::Rld => {
                 let a = self.regs.get(Reg8::A);
                 let mem = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
+                self.tick_n(4).await;
 
                 let a_lo = a & 0xf;
                 let a_hi = a >> 4;
@@ -523,6 +555,7 @@ impl Cpu {
             InstED::Rrd => {
                 let a = self.regs.get(Reg8::A);
                 let mem = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
+                self.tick_n(4).await;
 
                 let a_lo = a & 0xf;
                 let a_hi = a >> 4;
@@ -541,6 +574,7 @@ impl Cpu {
             InstED::Sbc16(src) => {
                 let left = self.regs.get(Reg16::HL);
                 let right = self.load16(src).await;
+                self.tick_n(7).await;
 
                 let (left_lo, left_hi) = u8(left);
                 let (right_lo, right_hi) = u8(right);
@@ -552,7 +586,7 @@ impl Cpu {
                 self.regs.set(Reg16::HL, result);
                 self.regs.flag_z_mut().value(result == 0);
             }
-            InstED::Unknown => todo!("unknown ED inst: PC:{:04x}", self.regs.pc()),
+            InstED::Unknown => todo!("unknown ED inst: PC:{:04x}", self.regs.get(Reg16::PC)),
         }
 
         self.prefix = InstructionPrefix::None;
@@ -584,7 +618,7 @@ impl Cpu {
                 let value = self.load8(src).await;
                 self.store8(dst, value & !mask).await;
             }
-            InstCB::Unknown => todo!("unknown CB inst: PC:{:04x}", self.regs.pc()),
+            InstCB::Unknown => todo!("unknown CB inst: PC:{:04x}", self.regs.get(Reg16::PC)),
         }
 
         self.prefix = InstructionPrefix::None;
@@ -599,9 +633,14 @@ impl Cpu {
             self.interrupt_mode = InterruptMode::Zero;
             self.regs = Registers::new();
         } else if self.pending_nmi {
+            let pc = self.regs.get(Reg16::PC);
+            self.tick().await;
+            self.read(pc).await;
+            self.tick().await;
+
             self.pending_nmi = false;
             self.regs.flag_iff1_mut().reset();
-            self.push16(self.regs.get(Reg16::PC)).await;
+            self.push16(pc).await;
             let addr = u16(0x66, 0);
             self.regs.set(Reg16::PC, addr);
         } else if self.regs.flag_iff1() && self.pending_int {
@@ -613,11 +652,13 @@ impl Cpu {
                     self.exec(data).await;
                 }
                 InterruptMode::One => {
+                    self.tick().await;
                     self.push16(self.regs.get(Reg16::PC)).await;
                     let addr = u16(0x38, 0);
                     self.regs.set(Reg16::PC, addr);
                 }
                 InterruptMode::Two => {
+                    self.tick().await;
                     self.push16(self.regs.get(Reg16::PC)).await;
                     let addr = u16(data & 0xfe, self.regs.get(Reg8::I));
                     let addr = self.read16(addr).await;
@@ -687,7 +728,7 @@ impl Cpu {
     }
 
     async fn fetch(&mut self) -> u8 {
-        let pc = self.regs.pc();
+        let pc = self.regs.get(Reg16::PC);
         self.regs.inc(Reg16::PC);
         self.regs.inc(Reg8::R);
         self.tick().await;
@@ -695,7 +736,7 @@ impl Cpu {
     }
 
     async fn read_pc(&mut self) -> u8 {
-        let pc = self.regs.pc();
+        let pc = self.regs.get(Reg16::PC);
         self.regs.inc(Reg16::PC);
         self.read(pc).await
     }
@@ -764,12 +805,24 @@ impl Cpu {
     }
 
     async fn interrupt_ack(&mut self) -> u8 {
+        self.tick().await;
+        self.tick().await;
+        self.tick().await;
+        self.tick().await;
+        self.tick().await;
         self.do_yield(CpuPinOutputs::InterruptAck).await;
         self.data_bus()
     }
 
     async fn tick(&mut self) {
         self.do_yield(CpuPinOutputs::Idle).await;
+    }
+
+    #[inline(always)]
+    async fn tick_n(&mut self, cycles: u32) {
+        for _ in 0..cycles {
+            self.tick().await;
+        }
     }
 
     fn update_input(&mut self, new_inputs: CpuPinInputs) {

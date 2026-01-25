@@ -84,11 +84,6 @@ impl Registers {
         reg.dec(&mut self.regs);
     }
 
-    #[inline(always)]
-    pub fn pc(&self) -> u16 {
-        self.get(Reg16::PC)
-    }
-
     define_flag!(flag_c, flag_c_mut, 0);
     define_flag!(flag_n, flag_n_mut, 1);
     define_flag!(flag_v, flag_v_mut, 2);
