@@ -34,14 +34,24 @@ impl InputMap {
 
     pub fn controller(&self) -> Player {
         Player {
-            service: self.is_pressed(KeyCode::KeyZ),
-            rack_test: self.is_pressed(KeyCode::KeyX),
-            coin: self.is_pressed(KeyCode::ShiftRight) || self.is_pressed(KeyCode::Backslash),
-            start: self.is_pressed(KeyCode::Enter),
-            up: self.is_pressed(KeyCode::ArrowUp),
-            down: self.is_pressed(KeyCode::ArrowDown),
-            left: self.is_pressed(KeyCode::ArrowLeft),
-            right: self.is_pressed(KeyCode::ArrowRight),
+            up_1: self.is_pressed(KeyCode::ArrowUp),
+            down_1: self.is_pressed(KeyCode::ArrowDown),
+            left_1: self.is_pressed(KeyCode::ArrowLeft),
+            right_1: self.is_pressed(KeyCode::ArrowRight),
+            up_2: self.is_pressed(KeyCode::KeyW),
+            down_2: self.is_pressed(KeyCode::KeyS),
+            left_2: self.is_pressed(KeyCode::KeyA),
+            right_2: self.is_pressed(KeyCode::KeyD),
+            coin_1: self.is_pressed(KeyCode::ShiftRight)
+                || self.is_pressed(KeyCode::Backslash)
+                || self.is_pressed(KeyCode::F1),
+            coin_2: self.is_pressed(KeyCode::F2),
+            start_1: self.is_pressed(KeyCode::Enter) || self.is_pressed(KeyCode::F3),
+            start_2: self.is_pressed(KeyCode::F4),
+            test: self.is_pressed(KeyCode::KeyZ),
+            rack_advance: self.is_pressed(KeyCode::KeyX),
+            cocktail: false,
+            credit: self.is_pressed(KeyCode::F5),
         }
     }
 

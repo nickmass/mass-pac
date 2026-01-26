@@ -57,6 +57,7 @@ pub struct Video {
     interrupt_data: u8,
     interrupt_pending: bool,
     frame: u32,
+    flip_screen: bool,
 }
 
 impl Video {
@@ -99,6 +100,7 @@ impl Video {
             interrupt_data: 0,
             interrupt_pending: false,
             frame: 0,
+            flip_screen: false,
         }
     }
 
@@ -155,6 +157,7 @@ impl Video {
     pub fn write(&mut self, address: u16, value: u8) {
         match address & 0x7fff {
             0x5000 => self.interrupt_enable = value != 0,
+            0x5003 => self.flip_screen = value & 1 != 0,
             0x5060..0x5070 => {
                 let idx = address & 0x0f;
                 self.spr_data[idx as usize] = value;
@@ -206,6 +209,11 @@ impl Video {
                         let color = self.bg_pixel(rom, pattern, color, x as u8, y as u8);
                         let pixel_x = tile_x * 8 + x;
                         let pixel_y = tile_y * 8 + y;
+                        let (pixel_x, pixel_y) = if self.flip_screen {
+                            (36 * 8 - pixel_x, 32 * 8 - pixel_y)
+                        } else {
+                            (pixel_x, pixel_y)
+                        };
                         self.screen.set_pixel(pixel_x, pixel_y, color);
                     }
                 }

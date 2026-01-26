@@ -15,36 +15,50 @@ impl Default for UserInput {
 
 #[derive(Debug, Copy, Clone, Default, Deserialize, Serialize)]
 pub struct Player {
-    pub up: bool,
-    pub down: bool,
-    pub left: bool,
-    pub right: bool,
-    pub service: bool,
-    pub rack_test: bool,
-    pub coin: bool,
-    pub start: bool,
+    pub up_1: bool,
+    pub down_1: bool,
+    pub left_1: bool,
+    pub right_1: bool,
+    pub up_2: bool,
+    pub down_2: bool,
+    pub left_2: bool,
+    pub right_2: bool,
+    pub coin_1: bool,
+    pub coin_2: bool,
+    pub start_1: bool,
+    pub start_2: bool,
+    pub test: bool,
+    pub rack_advance: bool,
+    pub cocktail: bool,
+    pub credit: bool,
 }
 
 impl Player {
     pub fn port_0(&self) -> u8 {
         let mut v = 0;
-        if self.up {
+        if self.up_1 {
             v |= 0x01;
         }
-        if self.left {
+        if self.left_1 {
             v |= 0x02;
         }
-        if self.right {
+        if self.right_1 {
             v |= 0x04;
         }
-        if self.down {
+        if self.down_1 {
             v |= 0x08;
         }
-        if self.rack_test {
+        if self.rack_advance {
             v |= 0x10;
         }
-        if self.coin {
+        if self.coin_1 {
             v |= 0x20;
+        }
+        if self.coin_2 {
+            v |= 0x40;
+        }
+        if self.credit {
+            v |= 0x80;
         }
 
         !v
@@ -52,23 +66,29 @@ impl Player {
 
     pub fn port_1(&self) -> u8 {
         let mut v = 0;
-        if self.up {
+        if self.up_2 {
             v |= 0x01;
         }
-        if self.left {
+        if self.left_2 {
             v |= 0x02;
         }
-        if self.right {
+        if self.right_2 {
             v |= 0x04;
         }
-        if self.down {
+        if self.down_2 {
             v |= 0x08;
         }
-        if self.service {
+        if self.test {
             v |= 0x10;
         }
-        if self.start {
+        if self.start_1 {
             v |= 0x20;
+        }
+        if self.start_2 {
+            v |= 0x40;
+        }
+        if self.cocktail {
+            v |= 0x80;
         }
 
         !v
