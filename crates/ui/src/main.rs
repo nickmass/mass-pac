@@ -18,9 +18,11 @@ fn main() {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
 
     let mut no_filter = false;
+    let mut bench = false;
     for arg in args.iter() {
         match arg.as_str() {
             "--no-filter" => no_filter = true,
+            "--bench" | "-b" => bench = true,
             "--help" | "-h" => {
                 usage();
                 std::process::exit(0);
@@ -40,6 +42,11 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if bench {
+        do_bench(rom);
+        std::process::exit(0)
+    }
 
     let filter: Box<dyn Filter<GliumContext>> = if no_filter {
         Box::new(PixelatedFilter::new())
@@ -63,6 +70,29 @@ fn main() {
         .unwrap();
 
     app.run(handle);
+}
+
+fn do_bench(rom: pacman::Rom) {
+    use std::hint::black_box;
+
+    let mut pacman = pacman::System::new(rom, pacman::DipSettings::default());
+    let time = std::time::Instant::now();
+    let seconds = 60;
+    let clock = pacman.audio_clock() as i32;
+    let mut total_clocks = seconds * clock;
+    let mut frame = 0;
+    while total_clocks > 0 {
+        if frame != pacman.frame() {
+            pacman.handle_input(black_box(pacman::UserInput::default()));
+            frame = pacman.frame();
+        }
+        pacman.run(256);
+        black_box(pacman.screen());
+        let samples = black_box(pacman.samples());
+        total_clocks -= samples.len() as i32;
+    }
+
+    println!("Duration: {}ms", time.elapsed().as_millis());
 }
 
 fn init_audio() -> (AudioDevices, SamplesSender) {

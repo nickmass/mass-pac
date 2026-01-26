@@ -67,7 +67,8 @@ impl System {
 
     pub fn run(&mut self, samples: u32) {
         let samples = samples as usize;
-        while !self.sound.samples_full(samples) {
+        let frame = self.frame();
+        while !self.sound.samples_full(samples) && frame == self.frame() {
             let output = self.cpu.tick(self.cpu_input);
 
             let data = match output {
