@@ -176,7 +176,6 @@ pub trait RegisterSize {
 
 #[repr(u8)]
 #[allow(non_camel_case_types, unused)]
-#[cfg(target_endian = "little")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Reg8 {
     F,
@@ -205,39 +204,6 @@ pub enum Reg8 {
     I,
     PC_L,
     PC_H,
-}
-
-#[repr(u8)]
-#[allow(non_camel_case_types, unused)]
-#[cfg(target_endian = "big")]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Reg8 {
-    A,
-    F,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-    A_,
-    F_,
-    B_,
-    C_,
-    D_,
-    E_,
-    H_,
-    L_,
-    IX_H,
-    IX_L,
-    IY_H,
-    IY_L,
-    SP_H,
-    SP_L,
-    I,
-    R,
-    PC_H,
-    PC_L,
 }
 
 impl RegisterSize for Reg8 {
@@ -326,13 +292,8 @@ impl RegisterSize for Reg16 {
 
     #[inline(always)]
     fn get(self, regs: &RegArray) -> Self::Output {
-        let regs = unsafe {
-            std::slice::from_raw_parts(
-                regs.as_ptr() as *const Self::Output,
-                regs.len() / std::mem::size_of::<Self::Output>(),
-            )
-        };
-        regs[self as usize]
+        let idx = (self as usize) << 1;
+        u16::from_le_bytes([regs[idx], regs[idx | 1]])
     }
 
     #[inline(always)]
@@ -354,37 +315,22 @@ impl RegisterSize for Reg16 {
 
     #[inline(always)]
     fn set(self, regs: &mut RegArray, value: Self::Output) {
-        let regs = unsafe {
-            std::slice::from_raw_parts_mut(
-                regs.as_mut_ptr() as *mut Self::Output,
-                regs.len() / std::mem::size_of::<Self::Output>(),
-            )
-        };
-        regs[self as usize] = value;
+        let idx = (self as usize) << 1;
+        let [lo, hi] = value.to_le_bytes();
+        regs[idx] = lo;
+        regs[idx | 1] = hi;
     }
 
     #[inline(always)]
     fn inc(self, regs: &mut RegArray) {
-        let regs = unsafe {
-            std::slice::from_raw_parts_mut(
-                regs.as_mut_ptr() as *mut Self::Output,
-                regs.len() / std::mem::size_of::<Self::Output>(),
-            )
-        };
-        let value = regs[self as usize].wrapping_add(1);
-        regs[self as usize] = value;
+        let value = self.get(regs).wrapping_add(1);
+        self.set(regs, value);
     }
 
     #[inline(always)]
     fn dec(self, regs: &mut RegArray) {
-        let regs = unsafe {
-            std::slice::from_raw_parts_mut(
-                regs.as_mut_ptr() as *mut Self::Output,
-                regs.len() / std::mem::size_of::<Self::Output>(),
-            )
-        };
-        let value = regs[self as usize].wrapping_sub(1);
-        regs[self as usize] = value;
+        let value = self.get(regs).wrapping_sub(1);
+        self.set(regs, value);
     }
 
     #[inline(always)]
