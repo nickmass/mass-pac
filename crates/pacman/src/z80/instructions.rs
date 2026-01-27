@@ -714,6 +714,7 @@ impl Alu {
                     .value((!(left ^ right) & (result ^ right) & 0x80) != 0);
                 regs.flag_n_mut().reset();
                 regs.flag_c_mut().value(overflow);
+                regs.set_flags_f35(result);
             }
             Alu::Adc => {
                 let (r, overflow_0) = left.overflowing_add(right);
@@ -726,6 +727,7 @@ impl Alu {
                     .value((!(left ^ right) & (result ^ right) & 0x80) != 0);
                 regs.flag_n_mut().reset();
                 regs.flag_c_mut().value(overflow_0 || overflow_1);
+                regs.set_flags_f35(result);
             }
             Alu::Sub => {
                 let (r, overflow) = left.overflowing_sub(right);
@@ -737,6 +739,7 @@ impl Alu {
                     .value(((left ^ right) & (result ^ left) & 0x80) != 0);
                 regs.flag_n_mut().set();
                 regs.flag_c_mut().value(overflow);
+                regs.set_flags_f35(result);
             }
             Alu::Sbc => {
                 let (r, overflow_0) = left.overflowing_sub(right);
@@ -749,27 +752,31 @@ impl Alu {
                     .value(((left ^ right) & (result ^ left) & 0x80) != 0);
                 regs.flag_n_mut().set();
                 regs.flag_c_mut().value(overflow_0 || overflow_1);
+                regs.set_flags_f35(result);
             }
             Alu::And => {
                 result = left & right;
-                regs.set_flags_szv(result);
-                regs.flag_h_mut().reset();
+                regs.set_flags_sign_zero_parity(result);
+                regs.flag_h_mut().set();
                 regs.flag_n_mut().reset();
                 regs.flag_c_mut().reset();
+                regs.set_flags_f35(result);
             }
             Alu::Xor => {
                 result = left ^ right;
-                regs.set_flags_szv(result);
+                regs.set_flags_sign_zero_parity(result);
                 regs.flag_h_mut().reset();
                 regs.flag_n_mut().reset();
                 regs.flag_c_mut().reset();
+                regs.set_flags_f35(result);
             }
             Alu::Or => {
                 result = left | right;
-                regs.set_flags_szv(result);
+                regs.set_flags_sign_zero_parity(result);
                 regs.flag_h_mut().reset();
                 regs.flag_n_mut().reset();
                 regs.flag_c_mut().reset();
+                regs.set_flags_f35(result);
             }
             Alu::Cp => {
                 let (r, overflow) = left.overflowing_sub(right);
@@ -781,6 +788,7 @@ impl Alu {
                     .value(((left ^ right) & (result ^ left) & 0x80) != 0);
                 regs.flag_n_mut().set();
                 regs.flag_c_mut().value(overflow);
+                regs.set_flags_f35(right);
 
                 // revert result as CP does not store value
                 result = left;
@@ -827,7 +835,7 @@ pub enum BitAlu {
 }
 
 impl BitAlu {
-    pub fn op(&self, mut value: u8, registers: &mut Registers) -> u8 {
+    pub fn op(&self, mut value: u8, registers: &mut Registers, cb_inst: bool) -> u8 {
         let hi_bit = value & 0x80 != 0;
         let lo_bit = value & 0x01 != 0;
         let carry = registers.flag_c();
@@ -882,9 +890,13 @@ impl BitAlu {
             }
         }
 
-        registers.set_flags_szv(value);
+        if cb_inst {
+            registers.set_flags_sign_zero_parity(value);
+        }
+
         registers.flag_h_mut().reset();
         registers.flag_n_mut().reset();
+        registers.set_flags_f35(value);
 
         value
     }

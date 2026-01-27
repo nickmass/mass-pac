@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 macro_rules! define_flag {
     ($name:ident, $name_mut:ident, $bit:literal$( , self.$reg:ident)?) => {
         #[inline(always)]
+        #[allow(unused)]
         pub fn $name_mut(&mut self) -> Flag<$bit, &mut u8> {
             #[allow(unused)]
             let reg = &mut self.regs[Reg8::F as usize];
@@ -13,9 +14,9 @@ macro_rules! define_flag {
         }
 
         #[inline(always)]
+        #[allow(unused)]
         pub fn $name(&self) -> bool {
-            #[allow(unused)]
-            let reg = &self.regs[Reg8:: F as usize];
+            let reg = &self.regs[Reg8::F as usize];
             $(let reg = &self.$reg;)?
             Flag::<$bit, _>(reg).get()
         }
@@ -24,12 +25,12 @@ macro_rules! define_flag {
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[repr(C, align(2))]
-struct RegArray {
+pub struct RegArray {
     regs: [u8; 26],
 }
 
 impl std::ops::Deref for RegArray {
-    type Target = [u8];
+    type Target = [u8; 26];
 
     fn deref(&self) -> &Self::Target {
         &self.regs
@@ -87,16 +88,23 @@ impl Registers {
     define_flag!(flag_c, flag_c_mut, 0);
     define_flag!(flag_n, flag_n_mut, 1);
     define_flag!(flag_v, flag_v_mut, 2);
+    define_flag!(flag_f3, flag_f3_mut, 3);
     define_flag!(flag_h, flag_h_mut, 4);
+    define_flag!(flag_f5, flag_f5_mut, 5);
     define_flag!(flag_z, flag_z_mut, 6);
     define_flag!(flag_s, flag_s_mut, 7);
     define_flag!(flag_iff1, flag_iff1_mut, 0, self.iff);
     define_flag!(flag_iff2, flag_iff2_mut, 1, self.iff);
 
-    pub fn set_flags_szv(&mut self, value: u8) {
+    pub fn set_flags_sign_zero_parity(&mut self, value: u8) {
         self.flag_s_mut().value(value & 0x80 != 0);
         self.flag_z_mut().value(value == 0);
         self.flag_v_mut().value(value.count_ones() & 1 == 0);
+    }
+
+    pub fn set_flags_f35(&mut self, value: u8) {
+        self.flag_f3_mut().value(value & 0x08 != 0);
+        self.flag_f5_mut().value(value & 0x20 != 0);
     }
 
     pub fn index_mode(&mut self, mode: IndexMode) {
@@ -158,11 +166,11 @@ impl<'a> std::ops::DerefMut for NoIdx<'a> {
 
 pub trait RegisterSize {
     type Output: Copy;
-    fn get(self, regs: &[u8]) -> Self::Output;
-    fn get_idx_off(self, regs: &[u8], index_mode: IndexMode, index_offset: u8) -> Self::Output;
-    fn set(self, regs: &mut [u8], value: Self::Output);
-    fn inc(self, regs: &mut [u8]);
-    fn dec(self, regs: &mut [u8]);
+    fn get(self, regs: &RegArray) -> Self::Output;
+    fn get_idx_off(self, regs: &RegArray, index_mode: IndexMode, index_offset: u8) -> Self::Output;
+    fn set(self, regs: &mut RegArray, value: Self::Output);
+    fn inc(self, regs: &mut RegArray);
+    fn dec(self, regs: &mut RegArray);
     fn swap_idx(self, index_mode: IndexMode) -> Self;
 }
 
@@ -236,12 +244,12 @@ impl RegisterSize for Reg8 {
     type Output = u8;
 
     #[inline(always)]
-    fn get(self, regs: &[u8]) -> Self::Output {
+    fn get(self, regs: &RegArray) -> Self::Output {
         regs[self as usize]
     }
 
     #[inline(always)]
-    fn get_idx_off(self, regs: &[u8], index_mode: IndexMode, index_offset: u8) -> Self::Output {
+    fn get_idx_off(self, regs: &RegArray, index_mode: IndexMode, index_offset: u8) -> Self::Output {
         let (reg, offset) = match index_mode {
             IndexMode::HL => (self, 0),
             IndexMode::IX => match self {
@@ -260,18 +268,18 @@ impl RegisterSize for Reg8 {
     }
 
     #[inline(always)]
-    fn set(self, regs: &mut [u8], value: Self::Output) {
+    fn set(self, regs: &mut RegArray, value: Self::Output) {
         regs[self as usize] = value;
     }
 
     #[inline(always)]
-    fn inc(self, regs: &mut [u8]) {
+    fn inc(self, regs: &mut RegArray) {
         let value = regs[self as usize].wrapping_add(1);
         regs[self as usize] = value;
     }
 
     #[inline(always)]
-    fn dec(self, regs: &mut [u8]) {
+    fn dec(self, regs: &mut RegArray) {
         let value = regs[self as usize].wrapping_sub(1);
         regs[self as usize] = value;
     }
@@ -317,7 +325,7 @@ impl RegisterSize for Reg16 {
     type Output = u16;
 
     #[inline(always)]
-    fn get(self, regs: &[u8]) -> Self::Output {
+    fn get(self, regs: &RegArray) -> Self::Output {
         let regs = unsafe {
             std::slice::from_raw_parts(
                 regs.as_ptr() as *const Self::Output,
@@ -328,7 +336,7 @@ impl RegisterSize for Reg16 {
     }
 
     #[inline(always)]
-    fn get_idx_off(self, regs: &[u8], index_mode: IndexMode, index_offset: u8) -> Self::Output {
+    fn get_idx_off(self, regs: &RegArray, index_mode: IndexMode, index_offset: u8) -> Self::Output {
         let (reg, offset) = match index_mode {
             IndexMode::HL => (self, 0),
             IndexMode::IX => match self {
@@ -345,10 +353,10 @@ impl RegisterSize for Reg16 {
     }
 
     #[inline(always)]
-    fn set(self, regs: &mut [u8], value: Self::Output) {
+    fn set(self, regs: &mut RegArray, value: Self::Output) {
         let regs = unsafe {
             std::slice::from_raw_parts_mut(
-                regs.as_ptr() as *mut Self::Output,
+                regs.as_mut_ptr() as *mut Self::Output,
                 regs.len() / std::mem::size_of::<Self::Output>(),
             )
         };
@@ -356,10 +364,10 @@ impl RegisterSize for Reg16 {
     }
 
     #[inline(always)]
-    fn inc(self, regs: &mut [u8]) {
+    fn inc(self, regs: &mut RegArray) {
         let regs = unsafe {
             std::slice::from_raw_parts_mut(
-                regs.as_ptr() as *mut Self::Output,
+                regs.as_mut_ptr() as *mut Self::Output,
                 regs.len() / std::mem::size_of::<Self::Output>(),
             )
         };
@@ -368,10 +376,10 @@ impl RegisterSize for Reg16 {
     }
 
     #[inline(always)]
-    fn dec(self, regs: &mut [u8]) {
+    fn dec(self, regs: &mut RegArray) {
         let regs = unsafe {
             std::slice::from_raw_parts_mut(
-                regs.as_ptr() as *mut Self::Output,
+                regs.as_mut_ptr() as *mut Self::Output,
                 regs.len() / std::mem::size_of::<Self::Output>(),
             )
         };

@@ -116,6 +116,7 @@ impl Cpu {
                     .value((left ^ right ^ result) & 0x1000 != 0);
                 self.regs.flag_n_mut().reset();
                 self.regs.flag_c_mut().value(carry);
+                self.regs.set_flags_f35((result >> 8) as u8);
             }
             Inst::Alu(alu, src) => {
                 let left = self.regs.get(Reg8::A);
@@ -125,7 +126,7 @@ impl Cpu {
             }
             Inst::BitAlu(alu, dst, src) => {
                 let value = self.load8(src).await;
-                let result = alu.op(value, &mut self.regs);
+                let result = alu.op(value, &mut self.regs, false);
                 self.store8(dst, result).await
             }
             Inst::Call => {
@@ -143,40 +144,48 @@ impl Cpu {
                 }
             }
             Inst::Ccf => {
+                let value = self.regs.get(Reg8::A);
                 let c = self.regs.flag_c();
                 self.regs.flag_c_mut().toggle();
                 self.regs.flag_h_mut().value(c);
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(value);
             }
             Inst::Cpl => {
-                let value = self.regs.get(Reg8::A);
-                self.regs.set(Reg8::A, value ^ 0xff);
+                let value = self.regs.get(Reg8::A) ^ 0xff;
+                self.regs.set(Reg8::A, value);
                 self.regs.flag_h_mut().set();
                 self.regs.flag_n_mut().set();
+                self.regs.set_flags_f35(value);
             }
             Inst::Daa => {
-                let mut adj = if self.regs.flag_c() { 0x60 } else { 0x00 };
-                if self.regs.flag_h() {
-                    adj |= 0x06;
-                }
-                let a = self.regs.get(Reg8::A);
-                let a = if !self.regs.flag_n() {
-                    if a & 0x0f > 0x09 {
-                        adj |= 0x06;
-                    }
-                    if a > 0x99 {
-                        adj |= 0x60
-                    }
+                let mut adj = 0;
+                let mut a = self.regs.get(Reg8::A);
+                let mut c = self.regs.flag_c();
+                let mut h = self.regs.flag_h();
 
-                    a.wrapping_add(adj)
+                if a & 0x0f > 0x09 || h {
+                    adj += 0x06;
+                }
+
+                if a > 0x99 || c {
+                    adj += 0x60;
+                    c = true;
+                }
+
+                if self.regs.flag_n() {
+                    h &= a & 0x0f < 0x06;
+                    a = a.wrapping_sub(adj);
                 } else {
-                    a.wrapping_sub(adj)
-                };
+                    h = a & 0x0f > 0x09;
+                    a = a.wrapping_add(adj);
+                }
 
                 self.regs.set(Reg8::A, a);
-                self.regs.set_flags_szv(a);
-                self.regs.flag_h_mut().reset();
-                self.regs.flag_c_mut().value(adj & 0x60 != 0);
+                self.regs.set_flags_sign_zero_parity(a);
+                self.regs.flag_h_mut().value(h);
+                self.regs.flag_c_mut().value(c);
+                self.regs.set_flags_f35(a);
             }
             Inst::Dec16(dst, src) => {
                 let old = self.load16(src).await;
@@ -193,6 +202,7 @@ impl Cpu {
                 self.regs.flag_h_mut().value(old & 0x0f == 0x0);
                 self.regs.flag_v_mut().value(old == 0x80);
                 self.regs.flag_n_mut().set();
+                self.regs.set_flags_f35(new);
             }
             Inst::Di => {
                 self.regs.flag_iff1_mut().reset();
@@ -212,6 +222,7 @@ impl Cpu {
             Inst::Ei => {
                 self.regs.flag_iff1_mut().set();
                 self.regs.flag_iff2_mut().set();
+                self.inhibit_interrupts = true;
             }
             Inst::Ex(r_a, r_b) => {
                 let a = self.regs.get(r_a);
@@ -264,6 +275,7 @@ impl Cpu {
                 self.regs.flag_h_mut().value(old & 0x0f == 0x0f);
                 self.regs.flag_v_mut().value(old == 0x7f);
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(new);
             }
             Inst::Jp(src) => {
                 let addr = self.load16(src).await;
@@ -330,9 +342,11 @@ impl Cpu {
                 self.regs.set(Reg16::PC, addr);
             }
             Inst::Scf => {
+                let value = self.regs.get(Reg8::A);
                 self.regs.flag_c_mut().set();
                 self.regs.flag_h_mut().reset();
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(value);
             }
             Inst::PrefixED => {
                 self.prefix = InstructionPrefix::ED;
@@ -391,7 +405,7 @@ impl Cpu {
                 let value = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
                 self.tick_n(5).await;
 
-                let _ = Alu::Cp.op(a, value, &mut self.regs);
+                let result = Alu::Sub.op(a, value, &mut self.regs);
 
                 match direction {
                     instructions::Direction::Inc => self.regs.inc(Reg16::HL),
@@ -401,6 +415,11 @@ impl Cpu {
                 let bc = self.regs.get(Reg16::BC);
                 self.regs.flag_v_mut().value(bc != 0);
                 self.regs.flag_c_mut().value(c);
+
+                let h = if self.regs.flag_h() { 1 } else { 0 };
+                let result = result.wrapping_sub(h);
+                self.regs.flag_f3_mut().value(result & 0x08 != 0);
+                self.regs.flag_f5_mut().value(result & 0x02 != 0);
 
                 if bc != 0 && a != value && repeat == Repeat::Repeat {
                     self.tick_n(5).await;
@@ -414,9 +433,10 @@ impl Cpu {
             InstED::In(dst) => {
                 let value = self.io_read(self.regs.get(Reg16::BC)).await;
                 self.tick().await;
-                self.regs.set_flags_szv(value);
+                self.regs.set_flags_sign_zero_parity(value);
                 self.regs.flag_h_mut().reset();
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(value);
                 self.store8(dst, value).await;
             }
             InstED::InBlock(repeat, direction) => {
@@ -436,6 +456,7 @@ impl Cpu {
                 self.regs.flag_n_mut().set();
                 let b = self.regs.get(Reg8::B);
                 self.regs.flag_z_mut().value(b != 0);
+                self.regs.set_flags_f35(b);
 
                 if b != 0 && repeat == Repeat::Repeat {
                     self.tick_n(5).await;
@@ -462,6 +483,7 @@ impl Cpu {
                 let iff2 = self.regs.flag_iff2();
                 self.regs.flag_v_mut().value(iff2);
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(value);
             }
             InstED::LdBlock(repeat, direction) => {
                 let value = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
@@ -482,6 +504,10 @@ impl Cpu {
                 self.regs.flag_n_mut().reset();
                 let bc = self.regs.get(Reg16::BC);
                 self.regs.flag_v_mut().value(bc != 0);
+
+                let tmp = self.regs.get(Reg8::A).wrapping_add(value);
+                self.regs.flag_f3_mut().value(tmp & 0x08 != 0);
+                self.regs.flag_f5_mut().value(tmp & 0x02 != 0);
 
                 if bc != 0 && repeat == Repeat::Repeat {
                     self.tick_n(5).await;
@@ -516,6 +542,7 @@ impl Cpu {
                 self.regs.flag_n_mut().set();
                 let b = self.regs.get(Reg8::B);
                 self.regs.flag_z_mut().value(b != 0);
+                self.regs.set_flags_f35(b);
 
                 if b != 0 && repeat == Repeat::Repeat {
                     self.tick_n(5).await;
@@ -548,9 +575,10 @@ impl Cpu {
 
                 self.store8(StoreLoc8::RegIndirect(Reg16::HL), mem).await;
                 self.regs.set(Reg8::A, a);
-                self.regs.set_flags_szv(a);
+                self.regs.set_flags_sign_zero_parity(a);
                 self.regs.flag_h_mut().reset();
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(a);
             }
             InstED::Rrd => {
                 let a = self.regs.get(Reg8::A);
@@ -567,9 +595,10 @@ impl Cpu {
 
                 self.store8(StoreLoc8::RegIndirect(Reg16::HL), mem).await;
                 self.regs.set(Reg8::A, a);
-                self.regs.set_flags_szv(a);
+                self.regs.set_flags_sign_zero_parity(a);
                 self.regs.flag_h_mut().reset();
                 self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(a);
             }
             InstED::Sbc16(src) => {
                 let left = self.regs.get(Reg16::HL);
@@ -598,15 +627,21 @@ impl Cpu {
         match inst {
             InstCB::Alu(alu, dst, src) => {
                 let value = self.load8(src).await;
-                let result = alu.op(value, &mut self.regs);
+                let result = alu.op(value, &mut self.regs, true);
                 self.store8(dst, result).await
             }
             InstCB::Bit(b, src) => {
                 let mask = 1 << b;
                 let value = self.load8(src).await;
-                self.regs.flag_z_mut().value(value & mask == 0);
+                self.regs.set_flags_sign_zero_parity(value & mask);
                 self.regs.flag_h_mut().set();
                 self.regs.flag_n_mut().reset();
+                if let LoadLoc8::RegIndirect(r) = src {
+                    let r = self.regs.get_idx_off(r);
+                    self.regs.set_flags_f35((r >> 8) as u8);
+                } else {
+                    self.regs.set_flags_f35(value);
+                }
             }
             InstCB::Set(b, dst, src) => {
                 let mask = 1 << b;
@@ -730,7 +765,11 @@ impl Cpu {
     async fn fetch(&mut self) -> u8 {
         let pc = self.regs.get(Reg16::PC);
         self.regs.inc(Reg16::PC);
-        self.regs.inc(Reg8::R);
+
+        let r = self.regs.get(Reg8::R);
+        let r = (r.wrapping_add(1) & 0x7f) | (r & 0x80);
+        self.regs.set(Reg8::R, r);
+
         self.tick().await;
         self.read(pc).await
     }

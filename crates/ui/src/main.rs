@@ -114,6 +114,11 @@ fn load_rom(args: Vec<String>) -> Result<pacman::Rom, Box<dyn std::error::Error>
         .first()
         .ok_or("supply path to pacman.zip or mspacman.zip")?
         .into();
+
+    if !rom_path.exists() {
+        return Err("supplied path does not exist".into());
+    }
+
     let container_name = rom_path
         .file_name()
         .and_then(|s| s.to_str())
