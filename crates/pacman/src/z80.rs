@@ -9,8 +9,8 @@ mod registers;
 
 use super::{CpuTickState, TickRequest};
 use instructions::{
-    Alu, Inst, InstCB, InstED, Instructions, InterruptMode, LoadLoc8, LoadLoc16, PreInst, Repeat,
-    StoreLoc8, StoreLoc16,
+    Alu, Inst, InstCB, InstED, Instructions, InterruptMode, LoadLoc8, LoadLoc16, PrefixInst,
+    Repeat, StoreLoc8, StoreLoc16,
 };
 use registers::{IndexMode, Reg8, Reg16, Registers};
 
@@ -87,9 +87,9 @@ impl Cpu {
         let p_inst = self.insts.lookup(opcode, self.prefix);
 
         match p_inst {
-            PreInst::None(inst) => self.exec_none(inst).await,
-            PreInst::ED(inst) => self.exec_ed(inst).await,
-            PreInst::CB(inst) => self.exec_cb(inst).await,
+            PrefixInst::None(inst) => self.exec_none(inst).await,
+            PrefixInst::ED(inst) => self.exec_ed(inst).await,
+            PrefixInst::CB(inst) => self.exec_cb(inst).await,
         }
     }
 
@@ -373,7 +373,6 @@ impl Cpu {
                 inhibit_mode_reset = true;
                 self.inhibit_interrupts = true;
             }
-            Inst::Unknown => todo!("unknown inst: PC:{:04x}", self.regs.get(Reg16::PC)),
         }
 
         if !inhibit_mode_reset {
@@ -384,6 +383,7 @@ impl Cpu {
     async fn exec_ed(&mut self, inst: InstED) {
         self.inhibit_interrupts = false;
         match inst {
+            InstED::Nop => (),
             InstED::Adc16(src) => {
                 let left = self.regs.get(Reg16::HL);
                 let right = self.load16(src).await;
@@ -438,6 +438,14 @@ impl Cpu {
                 self.regs.flag_n_mut().reset();
                 self.regs.set_flags_f35(value);
                 self.store8(dst, value).await;
+            }
+            InstED::InNull => {
+                let value = self.io_read(self.regs.get(Reg16::BC)).await;
+                self.tick().await;
+                self.regs.set_flags_sign_zero_parity(value);
+                self.regs.flag_h_mut().reset();
+                self.regs.flag_n_mut().reset();
+                self.regs.set_flags_f35(value);
             }
             InstED::InBlock(repeat, direction) => {
                 self.tick().await;
@@ -525,6 +533,11 @@ impl Cpu {
                 self.io_write(self.regs.get(Reg16::BC), value).await;
                 self.tick().await;
             }
+            InstED::OutNull => {
+                let value = 0;
+                self.io_write(self.regs.get(Reg16::BC), value).await;
+                self.tick().await;
+            }
             InstED::OutBlock(repeat, direction) => {
                 self.tick().await;
                 let value = self.load8(LoadLoc8::RegIndirect(Reg16::HL)).await;
@@ -553,6 +566,8 @@ impl Cpu {
             InstED::Reti => {
                 let value = self.pop16().await;
                 self.regs.set(Reg16::PC, value);
+                let iff2 = self.regs.flag_iff2();
+                self.regs.flag_iff1_mut().value(iff2);
             }
             InstED::Retn => {
                 let value = self.pop16().await;
@@ -615,7 +630,6 @@ impl Cpu {
                 self.regs.set(Reg16::HL, result);
                 self.regs.flag_z_mut().value(result == 0);
             }
-            InstED::Unknown => todo!("unknown ED inst: PC:{:04x}", self.regs.get(Reg16::PC)),
         }
 
         self.prefix = InstructionPrefix::None;
@@ -653,7 +667,6 @@ impl Cpu {
                 let value = self.load8(src).await;
                 self.store8(dst, value & !mask).await;
             }
-            InstCB::Unknown => todo!("unknown CB inst: PC:{:04x}", self.regs.get(Reg16::PC)),
         }
 
         self.prefix = InstructionPrefix::None;

@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use super::{InstructionPrefix, Reg8, Reg16, Registers};
 
 #[derive(Debug, Copy, Clone)]
-pub enum PreInst {
+pub enum PrefixInst {
     None(Inst),
     ED(InstED),
     CB(InstCB),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub enum Inst {
     Add16(LoadLoc16),
     Alu(Alu, LoadLoc8),
@@ -49,13 +49,6 @@ pub enum Inst {
     RetCond(Cond),
     Rst(u8),
     Scf,
-    Unknown,
-}
-
-impl Default for Inst {
-    fn default() -> Self {
-        Inst::Unknown
-    }
 }
 
 impl Inst {
@@ -73,47 +66,36 @@ impl Inst {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub enum InstED {
     Adc16(LoadLoc16),
     CpBlock(Repeat, Direction),
     Im(InterruptMode),
     In(StoreLoc8),
+    InNull,
     InBlock(Repeat, Direction),
     Ld16(StoreLoc16, LoadLoc16),
     Ld8(StoreLoc8, LoadLoc8),
     Ld8Flags(StoreLoc8, LoadLoc8),
     LdBlock(Repeat, Direction),
     Neg,
+    Nop,
     Out(LoadLoc8),
+    OutNull,
     OutBlock(Repeat, Direction),
     Reti,
     Retn,
     Rld,
     Rrd,
     Sbc16(LoadLoc16),
-    Unknown,
 }
 
-impl Default for InstED {
-    fn default() -> Self {
-        InstED::Unknown
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub enum InstCB {
     Alu(BitAlu, StoreLoc8, LoadLoc8),
     Bit(u8, LoadLoc8),
     Set(u8, StoreLoc8, LoadLoc8),
     Reset(u8, StoreLoc8, LoadLoc8),
-    Unknown,
-}
-
-impl Default for InstCB {
-    fn default() -> Self {
-        InstCB::Unknown
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -231,11 +213,11 @@ impl Instructions {
     }
 
     #[inline(always)]
-    pub fn lookup(&self, opcode: u8, prefix: InstructionPrefix) -> PreInst {
+    pub fn lookup(&self, opcode: u8, prefix: InstructionPrefix) -> PrefixInst {
         match prefix {
-            InstructionPrefix::None => PreInst::None(self.insts[opcode as usize]),
-            InstructionPrefix::ED => PreInst::ED(self.insts_ed[opcode as usize]),
-            InstructionPrefix::CB => PreInst::CB(self.insts_cb[opcode as usize]),
+            InstructionPrefix::None => PrefixInst::None(self.insts[opcode as usize]),
+            InstructionPrefix::ED => PrefixInst::ED(self.insts_ed[opcode as usize]),
+            InstructionPrefix::CB => PrefixInst::CB(self.insts_cb[opcode as usize]),
         }
     }
 }
@@ -381,20 +363,35 @@ fn load_insts_ed() -> [InstED; 256] {
     insts.extend((0x40, OpLoc8::<3>::no_indirect()), |(_, d)| {
         InstED::In(d.into())
     });
+    insts.push(0x70, InstED::InNull);
     insts.extend((0x41, OpLoc8::<3>::no_indirect()), |(_, s)| {
         InstED::Out(s.into())
     });
+    insts.push(0x71, InstED::OutNull);
     insts.extend((0x42, OpLoc16::<4>::all_sp()), |(_, s)| {
         InstED::Sbc16(LoadLoc16::reg(s))
     });
     insts.extend((0x43, OpLoc16::<4>::all_sp()), |(_, s)| {
         InstED::Ld16(StoreLoc16::OperandIndirect, LoadLoc16::reg(s))
     });
-    insts.push(0x44, InstED::Neg);
-    insts.push(0x45, InstED::Retn);
-    insts.push(0x46, InstED::Im(InterruptMode::Zero));
-    insts.push(0x56, InstED::Im(InterruptMode::One));
-    insts.push(0x5e, InstED::Im(InterruptMode::Two));
+    insts.extend((0x44, BitPermutations(0b00111000)), |_| InstED::Neg);
+    insts.extend((0x45, BitPermutations(0b00111000)), |(_, p)| {
+        if (p >> 3) & 1 == 0 {
+            InstED::Retn
+        } else {
+            InstED::Reti
+        }
+    });
+    insts.extend((0x46, BitPermutations(0b00111000)), |(_, p)| {
+        match (p >> 3) & 3 {
+            0 | 1 => InstED::Im(InterruptMode::Zero),
+            2 => InstED::Im(InterruptMode::One),
+            3 => InstED::Im(InterruptMode::Two),
+            _ => unreachable!(),
+        }
+    });
+    insts.push(0x77, InstED::Nop);
+    insts.push(0x7f, InstED::Nop);
     insts.push(
         0x47,
         InstED::Ld8(StoreLoc8::Reg(Reg8::I), LoadLoc8::Reg(Reg8::A)),
@@ -405,7 +402,6 @@ fn load_insts_ed() -> [InstED; 256] {
     insts.extend((0x4b, OpLoc16::<4>::all_sp()), |(_, s)| {
         InstED::Ld16(StoreLoc16::reg(s), LoadLoc16::OperandIndirect)
     });
-    insts.push(0x4d, InstED::Reti);
     insts.push(
         0x4f,
         InstED::Ld8(StoreLoc8::Reg(Reg8::R), LoadLoc8::Reg(Reg8::A)),
@@ -432,6 +428,10 @@ fn load_insts_ed() -> [InstED; 256] {
     insts.extend((0xa3, Repeat::all(), Direction::all()), |(_, r, d)| {
         InstED::OutBlock(r, d)
     });
+    insts.extend((0x80, BitPermutations(0b00011111)), |_| InstED::Nop);
+    insts.extend((0xa4, BitPermutations(0b00011011)), |_| InstED::Nop);
+    insts.extend((0x00, BitPermutations(0b00111111)), |_| InstED::Nop);
+    insts.extend((0xc0, BitPermutations(0b00111111)), |_| InstED::Nop);
 
     insts.build()
 }
@@ -456,28 +456,24 @@ fn load_insts_cb() -> [InstCB; 256] {
 }
 
 struct InstructionBuilder<T> {
-    insts: [T; 256],
+    insts: [Option<T>; 256],
 }
 
-impl<T: Default + Copy + std::fmt::Debug + PartialEq> InstructionBuilder<T> {
+impl<T: Copy + std::fmt::Debug> InstructionBuilder<T> {
     fn new() -> Self {
-        Self {
-            insts: [T::default(); 256],
-        }
+        Self { insts: [None; 256] }
     }
 
     fn push(&mut self, opcode: u8, inst: T) {
-        assert_eq!(
-            self.insts[opcode as usize],
-            T::default(),
-            "overlap for opcode: {:02x}",
-            opcode
+        assert!(
+            self.insts[opcode as usize].is_none(),
+            "overlap for opcode: 0x{opcode:02x} 0b{opcode:08b}"
         );
-        self.insts[opcode as usize] = inst;
+        self.insts[opcode as usize] = Some(inst);
     }
 
     fn overwrite(&mut self, opcode: u8, inst: T) {
-        self.insts[opcode as usize] = inst;
+        self.insts[opcode as usize] = Some(inst);
     }
 
     fn extend<I: OpcodeIterator, F: Fn(I::Item) -> T>(&mut self, iter: I, map: F) {
@@ -488,7 +484,15 @@ impl<T: Default + Copy + std::fmt::Debug + PartialEq> InstructionBuilder<T> {
     }
 
     fn build(self) -> [T; 256] {
-        self.insts
+        let mut opcode = 0;
+        self.insts.map(|i| {
+            if let Some(inst) = i {
+                opcode += 1;
+                inst
+            } else {
+                panic!("unpopulated opcode: 0x{opcode:02x}  0b{opcode:08b}")
+            }
+        })
     }
 }
 
@@ -505,6 +509,9 @@ impl OpcodePart for u8 {
         *self
     }
 }
+
+#[derive(Debug, Copy, Clone)]
+struct BitPermutations(u8);
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InterruptMode {
@@ -934,6 +941,39 @@ impl OpcodeVariation for u8 {
 
     fn variations(&self) -> impl Iterator<Item = (u8, Self::Item)> {
         std::iter::once((*self, *self))
+    }
+}
+
+impl OpcodeVariation for BitPermutations {
+    type Item = u8;
+
+    fn variations(&self) -> impl Iterator<Item = (u8, Self::Item)> {
+        let mut n = 0;
+        let mut done = false;
+        let mask = self.0;
+
+        std::iter::from_fn(move || {
+            let mut res = None;
+            while res.is_none() {
+                if done {
+                    return None;
+                }
+
+                res = if n == 0 || (n & mask != 0 && n & !mask == 0) {
+                    Some((n, n))
+                } else {
+                    None
+                };
+
+                if n == 255 {
+                    done = true;
+                } else {
+                    n += 1;
+                }
+            }
+
+            res
+        })
     }
 }
 
